@@ -97,9 +97,12 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     required init?(coder: NSCoder) { nil }
 
     func show() {
-        NSApp.setActivationPolicy(.regular)
+        let shouldCenter = window?.isVisible != true && window?.isMiniaturized != true
+        ApplicationPresentation.activateRegularApplication()
+        NSApp.unhide(nil)
         showWindow(nil)
-        window?.center()
+        if shouldCenter { window?.center() }
+        if window?.isMiniaturized == true { window?.deminiaturize(nil) }
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         alignWindowControls()
@@ -577,7 +580,12 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     }
 
     @objc private func copyRendered() {
-        do { exportService.copy(try renderedImage()) } catch { present(error) }
+        do {
+            exportService.copy(try renderedImage())
+            window?.close()
+        } catch {
+            present(error)
+        }
     }
 
     @objc private func saveRendered() {

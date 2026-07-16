@@ -35,7 +35,7 @@ final class HistoryWindowController: NSWindowController, NSCollectionViewDataSou
     }
 
     func show() {
-        NSApp.setActivationPolicy(.regular)
+        ApplicationPresentation.activateRegularApplication()
         showWindow(nil)
         window?.center()
         window?.makeKeyAndOrderFront(nil)

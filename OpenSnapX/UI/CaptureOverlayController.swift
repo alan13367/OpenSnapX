@@ -15,7 +15,11 @@ final class CaptureOverlayController {
     private var continuation: CheckedContinuation<OverlaySelection, Error>?
     private var completed = false
 
-    func select(mode: CaptureMode, candidates: [WindowCandidate] = []) async throws -> OverlaySelection {
+    func select(
+        mode: CaptureMode,
+        candidates: [WindowCandidate] = [],
+        frozenDisplays: [UInt32: CGImage] = [:]
+    ) async throws -> OverlaySelection {
         cancelExisting()
         completed = false
         return try await withCheckedThrowingContinuation { continuation in
@@ -36,7 +40,13 @@ final class CaptureOverlayController {
                 panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
                 panel.ignoresMouseEvents = false
                 panel.acceptsMouseMovedEvents = true
-                let view = CaptureOverlayView(screen: screen, displayID: displayID, mode: mode, candidates: candidates)
+                let view = CaptureOverlayView(
+                    screen: screen,
+                    displayID: displayID,
+                    mode: mode,
+                    candidates: candidates,
+                    frozenImage: frozenDisplays[displayID]
+                )
                 view.onComplete = { [weak self] result in self?.finish(result) }
                 view.onCancel = { [weak self] in self?.cancel() }
                 panel.contentView = view
@@ -87,6 +97,7 @@ private final class CaptureOverlayView: NSView {
     private let captureScreen: NSScreen
     private let displayID: UInt32
     private let candidates: [WindowCandidate]
+    private let frozenImage: CGImage?
     private var mode: CaptureMode
     private var selection: CGRect = .zero
     private var dragAnchor: CGPoint?
@@ -100,11 +111,18 @@ private final class CaptureOverlayView: NSView {
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
 
-    init(screen: NSScreen, displayID: UInt32, mode: CaptureMode, candidates: [WindowCandidate]) {
+    init(
+        screen: NSScreen,
+        displayID: UInt32,
+        mode: CaptureMode,
+        candidates: [WindowCandidate],
+        frozenImage: CGImage?
+    ) {
         captureScreen = screen
         self.displayID = displayID
         self.mode = mode
         self.candidates = candidates
+        self.frozenImage = frozenImage
         super.init(frame: CGRect(origin: .zero, size: screen.frame.size))
         wantsLayer = true
     }
@@ -211,6 +229,14 @@ private final class CaptureOverlayView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
+        if let frozenImage, let context = NSGraphicsContext.current?.cgContext {
+            context.saveGState()
+            context.interpolationQuality = .none
+            context.translateBy(x: 0, y: bounds.height)
+            context.scaleBy(x: 1, y: -1)
+            context.draw(frozenImage, in: bounds)
+            context.restoreGState()
+        }
         NSColor.black.withAlphaComponent(0.36).setFill()
         let dim = NSBezierPath(rect: bounds)
         if !selection.isEmpty {

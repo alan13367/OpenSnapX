@@ -25,6 +25,7 @@ final class AppCoordinator: NSObject {
     private var historyController: HistoryWindowController?
     private var paletteController: CapturePaletteWindowController?
     private var editorControllers: [UUID: EditorWindowController] = [:]
+    private var latestEditorID: UUID?
     private var scrollingController: ScrollingCaptureController?
     private var shortcutConflicts: [ShortcutAction] = []
 
@@ -154,17 +155,34 @@ final class AppCoordinator: NSObject {
                     result = try await captureService.capture(CaptureRequest(mode: .display, delaySeconds: delay, includeCursor: settings.includeCursor, displayID: displayID))
                 } else {
                     let candidates = mode == .window ? try await captureService.availableWindows() : []
-                    let selection = try await overlayController.select(mode: mode, candidates: candidates)
-                    try? await Task.sleep(for: .milliseconds(120))
+                    let freezesSelection = mode == .region || mode == .text
+                    if freezesSelection, delay > 0 {
+                        try await Task.sleep(for: .seconds(delay))
+                    }
+                    let frozenDisplays = freezesSelection ? try await captureFrozenDisplays() : [:]
+                    let selection = try await overlayController.select(
+                        mode: mode,
+                        candidates: candidates,
+                        frozenDisplays: frozenDisplays
+                    )
                     let request = CaptureRequest(
                         mode: selection.mode == .window ? .window : mode,
-                        delaySeconds: delay,
+                        delaySeconds: freezesSelection ? 0 : delay,
                         includeCursor: settings.includeCursor,
                         displayID: selection.displayID,
                         selection: selection.pixelRect,
                         windowID: selection.windowID
                     )
-                    if mode == .scrolling {
+                    if freezesSelection,
+                       selection.mode != .window,
+                       !settings.includeCursor,
+                       let frozenImage = frozenDisplays[selection.displayID] {
+                        result = try frozenRegionResult(
+                            image: frozenImage,
+                            selection: selection,
+                            mode: mode
+                        )
+                    } else if mode == .scrolling {
                         let controller = ScrollingCaptureController(captureService: captureService, engine: scrollingEngine)
                         scrollingController = controller
                         let stitched = try await controller.start(request: request)
@@ -183,6 +201,44 @@ final class AppCoordinator: NSObject {
         }
     }
 
+    private func captureFrozenDisplays() async throws -> [UInt32: CGImage] {
+        var images: [UInt32: CGImage] = [:]
+        for screen in NSScreen.screens {
+            guard let displayID = DisplayGeometry.displayID(for: screen) else { continue }
+            let snapshot = try await captureService.capture(CaptureRequest(
+                mode: .display,
+                includeCursor: false,
+                displayID: displayID
+            ))
+            images[displayID] = snapshot.image
+        }
+        return images
+    }
+
+    private func frozenRegionResult(
+        image: CGImage,
+        selection: OverlaySelection,
+        mode: CaptureMode
+    ) throws -> CaptureResult {
+        let imageBounds = CGRect(x: 0, y: 0, width: image.width, height: image.height)
+        let cropRect = selection.pixelRect.cgRect.standardized.integral
+        guard cropRect.width > 0,
+              cropRect.height > 0,
+              imageBounds.contains(cropRect),
+              let cropped = image.cropping(to: cropRect) else {
+            throw OpenSnapXError.captureFailed("The selected area is outside the frozen display.")
+        }
+        let scale = NSScreen.screens.first {
+            DisplayGeometry.displayID(for: $0) == selection.displayID
+        }?.backingScaleFactor ?? 1
+        return CaptureResult(
+            image: cropped,
+            mode: mode,
+            displayScale: scale,
+            sourceRect: CanvasRect(cropRect)
+        )
+    }
+
     private func completeCapture(_ result: CaptureResult) async throws {
         let session = try await historyStore.create(from: result)
         await rebuildMenu()
@@ -194,6 +250,10 @@ final class AppCoordinator: NSObject {
             let text = results.map(\.text).joined(separator: "\n")
             if !text.isEmpty { exportService.copyText(text); showNotice("Text copied") }
             else { showNotice("No text recognized") }
+            return
+        }
+        if result.mode == .region {
+            openEditor(session: session, image: result.image)
             return
         }
         switch settings.postCaptureAction {
@@ -217,21 +277,41 @@ final class AppCoordinator: NSObject {
     }
 
     private func openEditor(id: UUID) {
+        latestEditorID = id
+        if let editor = editorControllers[id] {
+            editor.show()
+            return
+        }
         Task {
             do {
                 let (session, payload) = try await historyStore.load(id: id)
-                let editor = EditorWindowController(
-                    session: session,
-                    image: payload.image,
-                    historyStore: historyStore,
-                    renderer: renderer,
-                    ocrService: ocrService,
-                    exportService: exportService
-                )
-                editorControllers[id] = editor
-                editor.show()
+                openEditor(session: session, image: payload.image)
             } catch { present(error) }
         }
+    }
+
+    private func openEditor(session: CaptureSession, image: CGImage) {
+        let id = session.id
+        latestEditorID = id
+        if let editor = editorControllers[id] {
+            editor.show()
+            return
+        }
+        let editor = EditorWindowController(
+            session: session,
+            image: image,
+            historyStore: historyStore,
+            renderer: renderer,
+            ocrService: ocrService,
+            exportService: exportService
+        )
+        editorControllers[id] = editor
+        editor.show()
+    }
+
+    func reopenLastEditor() {
+        guard let latestEditorID else { return }
+        openEditor(id: latestEditorID)
     }
 
     @objc private func showPalette() {
@@ -334,11 +414,14 @@ final class AppCoordinator: NSObject {
     }
 
     @objc private func windowClosed(_ notification: Notification) {
-        editorControllers = editorControllers.filter { $0.value.window?.isVisible == true }
+        if let closedWindow = notification.object as? NSWindow,
+           let closedEditorID = editorControllers.first(where: { $0.value.window === closedWindow })?.key {
+            editorControllers.removeValue(forKey: closedEditorID)
+        }
         Task {
             try? await Task.sleep(for: .milliseconds(100))
             let hasRegularWindow = NSApp.windows.contains { $0.isVisible && !($0 is NSPanel && $0.styleMask.contains(.nonactivatingPanel)) }
-            if !hasRegularWindow { NSApp.setActivationPolicy(.accessory) }
+            if !hasRegularWindow, latestEditorID == nil { NSApp.setActivationPolicy(.accessory) }
         }
     }
 }

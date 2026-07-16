@@ -41,7 +41,7 @@ final class OnboardingWindowController: NSWindowController {
     required init?(coder: NSCoder) { nil }
 
     func show() {
-        NSApp.setActivationPolicy(.regular)
+        ApplicationPresentation.activateRegularApplication()
         showWindow(nil)
         window?.center()
         window?.makeKeyAndOrderFront(nil)

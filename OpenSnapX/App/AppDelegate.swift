@@ -1,5 +1,13 @@
 import AppKit
 
+@MainActor
+enum ApplicationPresentation {
+    static func activateRegularApplication() {
+        NSApp.dockTile.contentView = nil
+        NSApp.setActivationPolicy(.regular)
+    }
+}
+
 @main
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -13,10 +21,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        if let iconURL = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
-           let icon = NSImage(contentsOf: iconURL) {
-            NSApp.applicationIconImage = icon
-        }
         configureMainMenu()
         coordinator = AppCoordinator()
         coordinator?.start()
@@ -27,6 +31,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        coordinator?.reopenLastEditor()
+        return true
+    }
 
     private func configureMainMenu() {
         let mainMenu = NSMenu()

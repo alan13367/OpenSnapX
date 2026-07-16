@@ -92,7 +92,6 @@ private final class PreviewContentView: NSVisualEffectView {
         layer?.masksToBounds = true
 
         let imageView = DraggableImageView(image: image)
-        imageView.imageScaling = .scaleProportionallyUpOrDown
         imageView.wantsLayer = true
         imageView.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.08).cgColor
         imageView.translatesAutoresizingMaskIntoConstraints = false
@@ -172,6 +171,34 @@ private final class DraggableImageView: NSImageView, NSDraggingSource {
     }
 
     required init?(coder: NSCoder) { nil }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard bounds.width > 0, bounds.height > 0,
+              dragImage.size.width > 0, dragImage.size.height > 0 else { return }
+        let scale = min(
+            bounds.width / dragImage.size.width,
+            bounds.height / dragImage.size.height
+        )
+        let size = CGSize(
+            width: dragImage.size.width * scale,
+            height: dragImage.size.height * scale
+        )
+        let destination = CGRect(
+            x: bounds.midX - size.width / 2,
+            y: bounds.midY - size.height / 2,
+            width: size.width,
+            height: size.height
+        )
+        NSGraphicsContext.current?.imageInterpolation = .high
+        dragImage.draw(
+            in: destination,
+            from: CGRect(origin: .zero, size: dragImage.size),
+            operation: .sourceOver,
+            fraction: 1,
+            respectFlipped: true,
+            hints: nil
+        )
+    }
 
     override func mouseDown(with event: NSEvent) {
         mouseDownPoint = event.locationInWindow
