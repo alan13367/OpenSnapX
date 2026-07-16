@@ -72,6 +72,8 @@ protocol ShortcutManager: AnyObject {
 
 @MainActor
 final class CarbonShortcutManager: ShortcutManager {
+    static let registrationOptions = OptionBits(kEventHotKeyExclusive)
+
     var onAction: ((ShortcutAction) -> Void)?
 
     private var hotKeys: [ShortcutAction: EventHotKeyRef] = [:]
@@ -118,7 +120,7 @@ final class CarbonShortcutManager: ShortcutManager {
                 definition.modifiers,
                 id,
                 GetApplicationEventTarget(),
-                0,
+                Self.registrationOptions,
                 &reference
             )
             if status == noErr, let reference { hotKeys[action] = reference }

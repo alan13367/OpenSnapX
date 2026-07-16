@@ -3,6 +3,16 @@ import XCTest
 @testable import OpenSnapX
 
 final class ModelAndGeometryTests: XCTestCase {
+    func testDisplayPointSizeExpandsToRetinaCapturePixels() {
+        let pixels = DisplayGeometry.pixelSize(from: CGSize(width: 1512, height: 982), scale: 2)
+        XCTAssertEqual(pixels, CGSize(width: 3024, height: 1964))
+    }
+
+    func testDisplayPointSizeStaysUnchangedAtOneX() {
+        let pixels = DisplayGeometry.pixelSize(from: CGSize(width: 1920, height: 1080), scale: 1)
+        XCTAssertEqual(pixels, CGSize(width: 1920, height: 1080))
+    }
+
     func testPixelConversionForRetinaDisplayWithNegativeOrigin() {
         let screen = CGRect(x: -1440, y: 0, width: 1440, height: 900)
         let selection = CGRect(x: -1340, y: 650, width: 200, height: 100)
@@ -35,4 +45,3 @@ final class ModelAndGeometryTests: XCTestCase {
         XCTAssertEqual(decoded.annotations, [annotation])
     }
 }
-

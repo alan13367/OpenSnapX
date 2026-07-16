@@ -110,7 +110,7 @@ final class SettingsWindowController: NSWindowController {
 
         let title = NSTextField(labelWithString: "Keyboard shortcuts")
         title.font = .systemFont(ofSize: 16, weight: .semibold)
-        let detail = NSTextField(wrappingLabelWithString: "Click a shortcut to record a new combination. System-owned shortcuts must first be disabled in Apple’s Screenshot shortcuts panel.")
+        let detail = NSTextField(wrappingLabelWithString: "Click a shortcut to record a new combination. OpenSnapX takes priority while it is running and releases the shortcut when it quits.")
         detail.textColor = .secondaryLabelColor
         detail.maximumNumberOfLines = 2
         let headingText = NSStackView(views: [title, detail])
@@ -249,7 +249,7 @@ final class SettingsWindowController: NSWindowController {
             guard let label = shortcutStatusLabels[result.action] else { continue }
             label.stringValue = result.succeeded ? "● Ready" : "● In use"
             label.textColor = result.succeeded ? .systemGreen : .systemOrange
-            label.toolTip = result.succeeded ? "Shortcut registered" : "This combination is registered by macOS or another app (error \(result.status))."
+            label.toolTip = result.succeeded ? "Shortcut registered exclusively while OpenSnapX is running" : "Another app has reserved this combination exclusively (error \(result.status))."
         }
     }
 }

@@ -32,4 +32,11 @@ final class ShortcutSettingsTests: XCTestCase {
         )
         XCTAssertEqual(shortcut.displayString, "⌃⌥⇧⌘4")
     }
+
+    func testGlobalShortcutsAreRegisteredExclusively() {
+        XCTAssertEqual(
+            CarbonShortcutManager.registrationOptions,
+            OptionBits(kEventHotKeyExclusive)
+        )
+    }
 }

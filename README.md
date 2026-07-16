@@ -1,8 +1,12 @@
 # OpenSnapX
 
+<p align="center">
+  <img src="assets/OpenSnapXAppIcon.png" alt="OpenSnapX icon" width="128">
+</p>
+
 OpenSnapX is a native, local-first screenshot and annotation utility for macOS. It is built with Swift 6 and AppKit—no Electron, Qt, accounts, telemetry, or cloud service.
 
-> OpenSnapX is an early source preview. Build it locally, expect rough edges, and please report reproducible bugs.
+> **Work in progress.** OpenSnapX is not fully functional yet. Build it locally, expect incomplete features and rough edges, and please report reproducible bugs.
 
 ## What works
 
@@ -31,7 +35,9 @@ brew install xcodegen
 ./script/build_and_run.sh
 ```
 
-The script regenerates the Xcode project when needed, stops an existing OpenSnapX process, builds a local ad-hoc-signed app, and opens the result. `--verify`, `--debug`, `--logs`, and `--telemetry` modes are also available.
+The script regenerates the Xcode project when needed, stops an existing OpenSnapX process, and opens the result. When an Apple Development certificate is available it signs with that stable identity so macOS privacy grants survive rebuilds; otherwise it falls back to ad-hoc signing. Set `OPEN_SNAPX_AD_HOC_SIGN=1` to force the fallback. `--verify`, `--debug`, `--logs`, and `--telemetry` modes are also available.
+
+For Xcode Run builds, copy `Config/Signing.local.xcconfig.example` to `Config/Signing.local.xcconfig`, replace `YOUR_TEAM_ID`, then run `xcodegen generate`. The local file is ignored by Git. Stable development signing matters because macOS ties Screen Recording permission to the app's code identity, and an ad-hoc identity changes after rebuilds.
 
 To run tests directly:
 
@@ -48,10 +54,10 @@ xcodebuild test \
 ## First run
 
 1. Grant Screen Recording access when prompted. OpenSnapX cannot capture without macOS consent.
-2. Assign capture shortcuts during onboarding or later in **OpenSnapX Settings**. To use Apple’s familiar combinations, disable the matching entries in **System Settings → Keyboard → Keyboard Shortcuts → Screenshots** first. OpenSnapX reports conflicts and never changes system preferences itself.
+2. Assign capture shortcuts during onboarding or later in **OpenSnapX Settings**. OpenSnapX registers them exclusively while it runs, so familiar Apple combinations trigger OpenSnapX instead of both capture tools. It releases them on quit and never changes system preferences.
 3. Use `⌘⇧3` for a display, `⌘⇧4` for an area/window, `⌘⇧5` for the palette, and `⌘⇧2` for direct OCR.
 
-Locally rebuilt ad-hoc-signed apps can cause macOS to request Screen Recording permission again. Signed and notarized downloadable builds require a future Apple Developer Program membership.
+Locally rebuilt ad-hoc-signed apps can cause macOS to request Screen Recording permission again. The build script avoids that when a local Apple Development certificate is installed. Signed and notarized downloadable builds require a future Apple Developer Program membership.
 
 ## Architecture
 

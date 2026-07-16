@@ -10,6 +10,7 @@ final class OnboardingWindowController: NSWindowController {
     private let permissionStatus = NSTextField(labelWithString: "")
     private var shortcutStatusLabels: [ShortcutAction: NSTextField] = [:]
     private var shortcutRecorders: [ShortcutAction: ShortcutRecorderControl] = [:]
+    private var permissionPollTimer: Timer?
 
     init(
         permissionService: ScreenPermissionService,
@@ -33,6 +34,7 @@ final class OnboardingWindowController: NSWindowController {
         window.isMovableByWindowBackground = true
         window.minSize = NSSize(width: 700, height: 680)
         super.init(window: window)
+        window.delegate = self
         configure()
     }
 
@@ -45,6 +47,7 @@ final class OnboardingWindowController: NSWindowController {
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         refreshPermissionStatus()
+        startPermissionPolling()
         refreshShortcutStatuses(registerShortcuts())
     }
 
@@ -158,7 +161,7 @@ final class OnboardingWindowController: NSWindowController {
         let symbol = makeSymbol("command", color: .systemPurple)
         let title = NSTextField(labelWithString: "Choose your capture shortcuts")
         title.font = .systemFont(ofSize: 17, weight: .semibold)
-        let detail = NSTextField(wrappingLabelWithString: "Click a shortcut, then press the combination you want. If macOS already owns it, disable Apple’s matching screenshot shortcut and retry.")
+        let detail = NSTextField(wrappingLabelWithString: "Click a shortcut, then press the combination you want. OpenSnapX takes priority while it is running and releases the shortcut when it quits.")
         detail.textColor = .secondaryLabelColor
         detail.maximumNumberOfLines = 2
         let headingText = NSStackView(views: [title, detail])
@@ -262,10 +265,7 @@ final class OnboardingWindowController: NSWindowController {
     @objc private func requestPermission() {
         _ = permissionService.request()
         refreshPermissionStatus()
-        Task {
-            try? await Task.sleep(for: .milliseconds(500))
-            refreshPermissionStatus()
-        }
+        startPermissionPolling()
     }
 
     @objc private func openPrivacySettings() { permissionService.openSystemSettings() }
@@ -290,12 +290,28 @@ final class OnboardingWindowController: NSWindowController {
         permissionStatus.textColor = authorized ? .systemGreen : .systemOrange
     }
 
+    private func startPermissionPolling() {
+        guard permissionPollTimer == nil else { return }
+        let timer = Timer(timeInterval: 0.75, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.refreshPermissionStatus()
+            }
+        }
+        permissionPollTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func stopPermissionPolling() {
+        permissionPollTimer?.invalidate()
+        permissionPollTimer = nil
+    }
+
     private func refreshShortcutStatuses(_ results: [ShortcutRegistrationResult]) {
         for result in results {
             guard let label = shortcutStatusLabels[result.action] else { continue }
             label.stringValue = result.succeeded ? "●  Ready" : "●  In use"
             label.textColor = result.succeeded ? .systemGreen : .systemOrange
-            label.toolTip = result.succeeded ? "Shortcut registered" : "This shortcut is already registered by macOS or another app (error \(result.status))."
+            label.toolTip = result.succeeded ? "Shortcut registered exclusively while OpenSnapX is running" : "Another app has reserved this shortcut exclusively (error \(result.status))."
         }
     }
 
@@ -303,6 +319,12 @@ final class OnboardingWindowController: NSWindowController {
         for (action, recorder) in shortcutRecorders {
             recorder.shortcut = settings.shortcut(for: action)
         }
+    }
+}
+
+extension OnboardingWindowController: NSWindowDelegate {
+    func windowWillClose(_ notification: Notification) {
+        stopPermissionPolling()
     }
 }
 

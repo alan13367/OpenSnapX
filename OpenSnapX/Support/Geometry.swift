@@ -2,6 +2,13 @@ import AppKit
 import CoreGraphics
 
 enum DisplayGeometry {
+    static func pixelSize(from pointSize: CGSize, scale: CGFloat) -> CGSize {
+        CGSize(
+            width: (pointSize.width * scale).rounded(),
+            height: (pointSize.height * scale).rounded()
+        )
+    }
+
     static func pixelRect(from screenRect: CGRect, on screen: NSScreen) -> CGRect {
         pixelRect(from: screenRect, screenFrame: screen.frame, scale: screen.backingScaleFactor)
     }

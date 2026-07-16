@@ -55,10 +55,15 @@ final class ScreenCaptureService: CaptureService, @unchecked Sendable {
             guard let display = resolveDisplay(request.displayID, in: content.displays) else {
                 throw OpenSnapXError.displayNotFound
             }
+            let displayScale = scale(for: display)
+            let captureSize = DisplayGeometry.pixelSize(
+                from: CGSize(width: display.width, height: display.height),
+                scale: displayScale
+            )
             let filter = SCContentFilter(display: display, excludingWindows: excludedWindows)
             let configuration = makeConfiguration(
-                width: display.width,
-                height: display.height,
+                width: max(1, Int(captureSize.width)),
+                height: max(1, Int(captureSize.height)),
                 includeCursor: request.includeCursor
             )
             let fullImage = try await SCScreenshotManager.captureImage(
@@ -67,18 +72,21 @@ final class ScreenCaptureService: CaptureService, @unchecked Sendable {
             )
 
             guard request.mode != .display, let selection = request.selection?.cgRect else {
-                return CaptureResult(image: normalizedSRGB(fullImage), mode: request.mode, displayScale: scale(for: display))
+                return CaptureResult(image: normalizedSRGB(fullImage), mode: request.mode, displayScale: displayScale)
             }
 
-            let cropRect = selection.intersection(CGRect(x: 0, y: 0, width: fullImage.width, height: fullImage.height))
-            guard cropRect.width > 0, cropRect.height > 0,
-                  let cropped = fullImage.cropping(to: cropRect.integral) else {
+            let imageBounds = CGRect(x: 0, y: 0, width: fullImage.width, height: fullImage.height)
+            let cropRect = selection.standardized.integral
+            guard cropRect.width > 0,
+                  cropRect.height > 0,
+                  imageBounds.contains(cropRect),
+                  let cropped = fullImage.cropping(to: cropRect) else {
                 throw OpenSnapXError.captureFailed("The selected area is outside the display.")
             }
             return CaptureResult(
                 image: normalizedSRGB(cropped),
                 mode: request.mode,
-                displayScale: scale(for: display),
+                displayScale: displayScale,
                 sourceRect: CanvasRect(cropRect)
             )
         }

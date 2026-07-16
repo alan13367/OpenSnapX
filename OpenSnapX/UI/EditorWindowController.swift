@@ -48,7 +48,14 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     private let scrollView = NSScrollView()
     private let colorWell = NSColorWell()
     private let widthSlider = NSSlider(value: 4, minValue: 1, maxValue: 28, target: nil, action: nil)
+    private let colorLabel = NSTextField(labelWithString: "#FF0000")
+    private let widthLabel = NSTextField(labelWithString: "4 pt")
+    private let zoomLabel = NSTextField(labelWithString: "100%")
+    private var toolButtons: [EditorTool: EditorChromeButton] = [:]
+    private var moreToolsButton: EditorChromeButton?
     private var persistTask: Task<Void, Never>?
+    private var keyMonitor: Any?
+    private weak var editorBar: NSView?
 
     init(
         session: CaptureSession,
@@ -72,14 +79,19 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
             defer: false
         )
         window.title = "OpenSnapX Editor"
+        window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
-        window.toolbarStyle = .unifiedCompact
-        window.minSize = CGSize(width: 760, height: 480)
+        window.titlebarSeparatorStyle = .none
+        window.minSize = CGSize(width: 840, height: 520)
         super.init(window: window)
         window.delegate = self
         configureUI()
         canvas.onAnnotationsChanged = { [weak self] annotations in self?.annotationsChanged(annotations) }
         canvas.onOCRSelection = { [weak self] result in self?.copyOCRResult(result) }
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, self.window?.isKeyWindow == true else { return event }
+            return self.handleLocalKeyDown(event)
+        }
     }
 
     required init?(coder: NSCoder) { nil }
@@ -90,10 +102,29 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         window?.center()
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        alignWindowControls()
+        DispatchQueue.main.async { [weak self] in self?.alignWindowControls() }
+    }
+
+    func windowDidResize(_ notification: Notification) {
+        DispatchQueue.main.async { [weak self] in self?.alignWindowControls() }
+    }
+
+    func windowDidExitFullScreen(_ notification: Notification) {
+        DispatchQueue.main.async { [weak self] in self?.alignWindowControls() }
     }
 
     func windowWillClose(_ notification: Notification) {
+        if let keyMonitor {
+            NSEvent.removeMonitor(keyMonitor)
+            self.keyMonitor = nil
+        }
         persistTask?.cancel()
+        NotificationCenter.default.removeObserver(
+            self,
+            name: NSView.boundsDidChangeNotification,
+            object: scrollView.contentView
+        )
         let session = self.session
         Task { try? await historyStore.save(session) }
     }
@@ -106,15 +137,22 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         root.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(root)
 
-        let toolbar = makeToolbar()
-        root.addArrangedSubview(toolbar)
+        let editorBar = makeEditorBar()
+        self.editorBar = editorBar
+        root.addArrangedSubview(editorBar)
 
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
         scrollView.allowsMagnification = true
         scrollView.minMagnification = 0.1
         scrollView.maxMagnification = 4
-        scrollView.backgroundColor = NSColor.windowBackgroundColor.blended(withFraction: 0.12, of: .black) ?? .windowBackgroundColor
+        let canvasBackground = NSColor.windowBackgroundColor.blended(withFraction: 0.08, of: .black) ?? .windowBackgroundColor
+        let clipView = CenteredClipView()
+        clipView.drawsBackground = true
+        clipView.backgroundColor = canvasBackground
+        scrollView.contentView = clipView
+        scrollView.backgroundColor = canvasBackground
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
         canvas.frame = CGRect(x: 0, y: 0, width: sourceImage.width, height: sourceImage.height)
         scrollView.documentView = canvas
         root.addArrangedSubview(scrollView)
@@ -124,90 +162,366 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
             root.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             root.topAnchor.constraint(equalTo: content.topAnchor),
             root.bottomAnchor.constraint(equalTo: content.bottomAnchor),
-            toolbar.heightAnchor.constraint(equalToConstant: 52)
+            editorBar.heightAnchor.constraint(equalToConstant: 52)
         ])
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(clipViewBoundsChanged),
+            name: NSView.boundsDidChangeNotification,
+            object: scrollView.contentView
+        )
 
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            content.layoutSubtreeIfNeeded()
             let fit = min(
                 self.scrollView.contentSize.width / CGFloat(self.sourceImage.width),
                 self.scrollView.contentSize.height / CGFloat(self.sourceImage.height),
                 1
             )
             self.scrollView.magnification = max(0.1, fit * 0.92)
+            self.scrollView.contentView.scroll(to: self.scrollView.contentView.bounds.origin)
+            self.scrollView.reflectScrolledClipView(self.scrollView.contentView)
+            self.updateZoomLabel()
         }
     }
 
-    private func makeToolbar() -> NSView {
-        let effect = NSVisualEffectView()
-        effect.material = .headerView
-        effect.blendingMode = .withinWindow
-        let stack = NSStackView()
-        stack.orientation = .horizontal
-        stack.alignment = .centerY
-        stack.spacing = 4
-        stack.edgeInsets = NSEdgeInsets(top: 8, left: 10, bottom: 8, right: 10)
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        effect.addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: effect.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: effect.trailingAnchor),
-            stack.topAnchor.constraint(equalTo: effect.topAnchor),
-            stack.bottomAnchor.constraint(equalTo: effect.bottomAnchor)
-        ])
+    private func makeEditorBar() -> NSView {
+        let bar = EditorTitlebarView()
+        bar.material = .headerView
+        bar.blendingMode = .withinWindow
+        bar.state = .followsWindowActiveState
 
-        for tool in EditorTool.allCases {
-            let button = EditorToolButton(tool: tool) { [weak self] selected in self?.selectTool(selected) }
-            button.isBordered = false
-            button.toolTip = tool == .redact
-                ? "Redact securely in exports (the editable source remains in local history)"
-                : tool.rawValue.capitalized
-            button.setAccessibilityLabel(tool.rawValue.capitalized)
+        let controls = chromeStack(spacing: 4)
+        controls.addArrangedSubview(makeExportStrip())
+        controls.addArrangedSubview(chromeSeparator())
+        controls.addArrangedSubview(makeHistoryStrip())
+        controls.addArrangedSubview(chromeSeparator())
+        controls.addArrangedSubview(makeToolStrip())
+        let info = makeInfoStrip()
+
+        controls.translatesAutoresizingMaskIntoConstraints = false
+        info.translatesAutoresizingMaskIntoConstraints = false
+        bar.addSubview(controls)
+        bar.addSubview(info)
+
+        controls.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+        info.setContentHuggingPriority(.required, for: .horizontal)
+        info.setContentCompressionResistancePriority(.required, for: .horizontal)
+        NSLayoutConstraint.activate([
+            controls.leadingAnchor.constraint(equalTo: bar.leadingAnchor, constant: 92),
+            controls.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
+            controls.trailingAnchor.constraint(lessThanOrEqualTo: info.leadingAnchor, constant: -10),
+            info.trailingAnchor.constraint(equalTo: bar.trailingAnchor, constant: -10),
+            info.centerYAnchor.constraint(equalTo: bar.centerYAnchor)
+        ])
+        return bar
+    }
+
+    private func makeExportStrip() -> NSView {
+        let stack = chromeStack(spacing: 4)
+        stack.addArrangedSubview(chromeButton(symbol: "doc.on.doc", label: "Copy") { [weak self] in self?.copyRendered() })
+        stack.addArrangedSubview(chromeButton(symbol: "square.and.arrow.down", label: "Save") { [weak self] in self?.saveRendered() })
+        return stack
+    }
+
+    private func makeHistoryStrip() -> NSView {
+        let stack = chromeStack(spacing: 4)
+        stack.addArrangedSubview(chromeButton(symbol: "arrow.uturn.backward", label: "Undo") { [weak self] in self?.undo() })
+        stack.addArrangedSubview(chromeButton(symbol: "arrow.uturn.forward", label: "Redo") { [weak self] in self?.redo() })
+        return stack
+    }
+
+    private func makeToolStrip() -> NSView {
+        let stack = chromeStack(spacing: 2)
+        let primaryTools: [EditorTool] = [.select, .arrow, .line, .text, .counter, .rectangle, .ellipse, .pen, .highlighter]
+        for tool in primaryTools {
+            let button = EditorChromeButton(
+                symbol: tool.symbol,
+                label: tool.rawValue.capitalized,
+                showsSelection: true
+            ) { [weak self] in self?.selectTool(tool) }
+            button.toolTip = tool.rawValue.capitalized
+            button.setSelected(tool == canvas.tool)
+            toolButtons[tool] = button
             stack.addArrangedSubview(button)
         }
-        stack.addArrangedSubview(separator())
+
+        let more = EditorChromeButton(
+            symbol: "ellipsis",
+            label: "More tools and actions",
+            showsSelection: true
+        ) { [weak self] in
+            guard let self, let button = self.moreToolsButton else { return }
+            self.showMoreTools(button)
+        }
+        more.toolTip = "More tools and actions"
+        moreToolsButton = more
+        stack.addArrangedSubview(more)
+        return stack
+    }
+
+    private func makeInfoStrip() -> NSView {
+        let colorGroup = makeColorInfo()
+        let widthGroup = makeWidthInfo()
+        let scale = max(1, session.manifest.displayScale)
+        let width = CGFloat(sourceImage.width) / scale
+        let height = CGFloat(sourceImage.height) / scale
+        let sizeGroup = metadataGroup(
+            value: "\(formattedDimension(width))×\(formattedDimension(height))pt",
+            caption: "Image size"
+        )
+        let zoomGroup = metadataGroup(valueLabel: zoomLabel, caption: "Zoom")
+
+        let stack = NSStackView(views: [
+            colorGroup,
+            chromeSeparator(),
+            widthGroup,
+            chromeSeparator(),
+            sizeGroup,
+            chromeSeparator(),
+            zoomGroup
+        ])
+        stack.orientation = .horizontal
+        stack.alignment = .centerY
+        stack.spacing = 14
+        stack.edgeInsets = NSEdgeInsets(top: 0, left: 4, bottom: 0, right: 8)
+        return stack
+    }
+
+    private func makeColorInfo() -> NSView {
         colorWell.color = .systemRed
+        colorWell.colorWellStyle = .minimal
         colorWell.target = self
         colorWell.action = #selector(styleChanged)
         colorWell.toolTip = "Annotation color"
-        stack.addArrangedSubview(colorWell)
+        colorWell.setAccessibilityLabel("Annotation color")
+        colorWell.widthAnchor.constraint(equalToConstant: 22).isActive = true
+        colorWell.heightAnchor.constraint(equalToConstant: 22).isActive = true
+
+        colorLabel.font = .monospacedSystemFont(ofSize: 13, weight: .medium)
+        colorLabel.textColor = .labelColor
+        colorLabel.isSelectable = false
+        colorLabel.toolTip = "Press Tab to copy"
+        let caption = NSTextField(labelWithString: "Tab to copy")
+        caption.font = .systemFont(ofSize: 11)
+        caption.textColor = .secondaryLabelColor
+
+        let textStack = NSStackView(views: [colorLabel, caption])
+        textStack.orientation = .vertical
+        textStack.alignment = .leading
+        textStack.spacing = 0
+
+        let row = NSStackView(views: [colorWell, textStack])
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 8
+
+        let copyClick = NSClickGestureRecognizer(target: self, action: #selector(copyColorHex))
+        colorLabel.addGestureRecognizer(copyClick)
+        colorLabel.setAccessibilityLabel("Color hex, click or press Tab to copy")
+        updateStyleLabels()
+        return row
+    }
+
+    private func makeWidthInfo() -> NSView {
+        widthLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        widthLabel.textColor = .labelColor
+        widthLabel.alignment = .left
+        widthLabel.toolTip = "Click to adjust stroke width"
+
+        let caption = NSTextField(labelWithString: "Stroke")
+        caption.font = .systemFont(ofSize: 11)
+        caption.textColor = .secondaryLabelColor
+
+        let stack = NSStackView(views: [widthLabel, caption])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 0
+        stack.setAccessibilityElement(true)
+        stack.setAccessibilityRole(.button)
+        stack.setAccessibilityLabel("Stroke width")
+
+        let click = NSClickGestureRecognizer(target: self, action: #selector(showStrokePopover(_:)))
+        stack.addGestureRecognizer(click)
+        updateStyleLabels()
+        return stack
+    }
+
+    @objc private func showStrokePopover(_ sender: NSClickGestureRecognizer) {
+        guard let anchor = sender.view else { return }
         widthSlider.target = self
         widthSlider.action = #selector(styleChanged)
-        widthSlider.widthAnchor.constraint(equalToConstant: 90).isActive = true
-        widthSlider.toolTip = "Line width"
-        stack.addArrangedSubview(widthSlider)
-        stack.addArrangedSubview(separator())
-        stack.addArrangedSubview(toolbarButton("arrow.uturn.backward", "Undo", #selector(undo)))
-        stack.addArrangedSubview(toolbarButton("arrow.uturn.forward", "Redo", #selector(redo)))
-        stack.addArrangedSubview(toolbarButton("text.viewfinder", "Recognize Text", #selector(recognizeText)))
-        stack.addArrangedSubview(toolbarButton("sparkles.rectangle.stack", "Backdrop", #selector(showBackdrop)))
-        stack.addArrangedSubview(NSView())
-        stack.addArrangedSubview(toolbarButton("doc.on.doc", "Copy", #selector(copyRendered)))
-        stack.addArrangedSubview(toolbarButton("square.and.arrow.down", "Save", #selector(saveRendered)))
-        return effect
+        widthSlider.controlSize = .small
+        widthSlider.frame = CGRect(x: 0, y: 0, width: 140, height: 24)
+
+        let container = NSView(frame: CGRect(x: 0, y: 0, width: 168, height: 44))
+        widthSlider.frame = CGRect(x: 14, y: 10, width: 140, height: 24)
+        if widthSlider.superview != container {
+            widthSlider.removeFromSuperview()
+            container.addSubview(widthSlider)
+        }
+
+        let popover = NSPopover()
+        popover.contentSize = container.frame.size
+        popover.behavior = .transient
+        popover.animates = true
+        let controller = NSViewController()
+        controller.view = container
+        popover.contentViewController = controller
+        popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .maxY)
     }
 
-    private func toolbarButton(_ symbol: String, _ label: String, _ action: Selector) -> NSButton {
-        let button = NSButton(image: NSImage(systemSymbolName: symbol, accessibilityDescription: label)!, target: self, action: action)
-        button.isBordered = false
-        button.toolTip = label
-        button.setAccessibilityLabel(label)
-        return button
+    private func metadataGroup(value: String, caption: String) -> NSView {
+        let label = NSTextField(labelWithString: value)
+        return metadataGroup(valueLabel: label, caption: caption)
     }
 
-    private func separator() -> NSBox {
+    private func metadataGroup(valueLabel: NSTextField, caption: String) -> NSView {
+        valueLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        valueLabel.textColor = .labelColor
+        valueLabel.alignment = .left
+        let captionLabel = NSTextField(labelWithString: caption)
+        captionLabel.font = .systemFont(ofSize: 11)
+        captionLabel.textColor = .secondaryLabelColor
+        let stack = NSStackView(views: [valueLabel, captionLabel])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 0
+        return stack
+    }
+
+    private func chromeSeparator() -> NSBox {
         let box = NSBox()
         box.boxType = .separator
+        box.alphaValue = 0.4
+        box.setContentHuggingPriority(.required, for: .horizontal)
+        box.widthAnchor.constraint(equalToConstant: 1).isActive = true
         box.heightAnchor.constraint(equalToConstant: 24).isActive = true
         return box
     }
 
+    private func chromeStack(spacing: CGFloat) -> NSStackView {
+        let stack = NSStackView()
+        stack.orientation = .horizontal
+        stack.alignment = .centerY
+        stack.spacing = spacing
+        return stack
+    }
+
+    private func chromeButton(symbol: String, label: String, action: @escaping () -> Void) -> EditorChromeButton {
+        let button = EditorChromeButton(symbol: symbol, label: label, showsSelection: false, action: action)
+        button.toolTip = label
+        return button
+    }
+
+    private func alignWindowControls() {
+        guard let window,
+              !window.styleMask.contains(.fullScreen),
+              let editorBar else { return }
+        editorBar.layoutSubtreeIfNeeded()
+        let barCenterInWindow = editorBar.convert(
+            CGPoint(x: editorBar.bounds.midX, y: editorBar.bounds.midY),
+            to: nil
+        ).y
+        for buttonType in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            guard let button = window.standardWindowButton(buttonType),
+                  let container = button.superview else { continue }
+            let centerInContainer = container.convert(CGPoint(x: 0, y: barCenterInWindow), from: nil).y
+            var origin = button.frame.origin
+            origin.y = (centerInContainer - button.frame.height / 2).rounded()
+            button.setFrameOrigin(origin)
+        }
+    }
+
     private func selectTool(_ tool: EditorTool) {
         canvas.tool = tool
+        for (candidate, button) in toolButtons {
+            button.setSelected(candidate == tool)
+        }
+        moreToolsButton?.setSelected(toolButtons[tool] == nil)
         applyStyle()
     }
 
-    @objc private func styleChanged() { applyStyle() }
+    @objc private func showMoreTools(_ sender: NSView) {
+        let menu = NSMenu(title: "More tools")
+        for tool in [EditorTool.blur, .pixelate, .redact, .crop] {
+            let item = NSMenuItem(title: tool.rawValue.capitalized, action: #selector(selectToolFromMenu(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = tool.rawValue
+            item.image = NSImage(systemSymbolName: tool.symbol, accessibilityDescription: item.title)
+            item.state = canvas.tool == tool ? .on : .off
+            if tool == .redact {
+                item.toolTip = "Redact securely in exports; the editable source stays in local history"
+            }
+            menu.addItem(item)
+        }
+        menu.addItem(.separator())
+        let recognize = NSMenuItem(title: "Recognize Text", action: #selector(recognizeText), keyEquivalent: "")
+        recognize.target = self
+        recognize.image = NSImage(systemSymbolName: "text.viewfinder", accessibilityDescription: recognize.title)
+        menu.addItem(recognize)
+        let backdrop = NSMenuItem(title: "Backdrop…", action: #selector(showBackdrop), keyEquivalent: "")
+        backdrop.target = self
+        backdrop.image = NSImage(systemSymbolName: "sparkles.rectangle.stack", accessibilityDescription: backdrop.title)
+        menu.addItem(backdrop)
+        menu.popUp(positioning: nil, at: CGPoint(x: 0, y: sender.bounds.maxY + 4), in: sender)
+    }
+
+    @objc private func selectToolFromMenu(_ sender: NSMenuItem) {
+        guard let rawValue = sender.representedObject as? String, let tool = EditorTool(rawValue: rawValue) else { return }
+        selectTool(tool)
+    }
+
+    @objc private func styleChanged() {
+        updateStyleLabels()
+        applyStyle()
+    }
+
+    @objc private func copyColorHex() {
+        let hex = hexString(for: colorWell.color)
+        exportService.copyText(hex)
+        showTransientMessage("Copied \(hex)")
+    }
+
+    private func handleLocalKeyDown(_ event: NSEvent) -> NSEvent? {
+        // Shottr-style: Tab copies the active color hex when a text field is not focused.
+        guard event.keyCode == 48,
+              !(window?.firstResponder is NSTextView),
+              !(window?.firstResponder is NSTextField) else {
+            return event
+        }
+        copyColorHex()
+        return nil
+    }
+
+    @objc private func clipViewBoundsChanged() {
+        updateZoomLabel()
+    }
+
+    private func updateStyleLabels() {
+        colorLabel.stringValue = hexString(for: colorWell.color)
+        widthLabel.stringValue = "\(Int(widthSlider.doubleValue.rounded())) pt"
+    }
+
+    private func updateZoomLabel() {
+        zoomLabel.stringValue = "\(Int((scrollView.magnification * 100).rounded()))%"
+    }
+
+    private func hexString(for color: NSColor) -> String {
+        guard let color = color.usingColorSpace(.sRGB) else { return "#FF0000" }
+        return String(
+            format: "#%02X%02X%02X",
+            Int((color.redComponent * 255).rounded()),
+            Int((color.greenComponent * 255).rounded()),
+            Int((color.blueComponent * 255).rounded())
+        )
+    }
+
+    private func formattedDimension(_ value: CGFloat) -> String {
+        value.rounded() == value ? String(Int(value)) : String(format: "%.1f", value)
+    }
 
     private func applyStyle() {
         canvas.style.strokeColor = RGBAColor(colorWell.color)
@@ -320,21 +634,86 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
 }
 
 @MainActor
-private final class EditorToolButton: NSButton {
-    private let tool: EditorTool
-    private let closure: (EditorTool) -> Void
+private final class EditorTitlebarView: NSVisualEffectView {
+    override var mouseDownCanMoveWindow: Bool { true }
+}
 
-    init(tool: EditorTool, action: @escaping (EditorTool) -> Void) {
-        self.tool = tool
+@MainActor
+private final class EditorChromeButton: NSButton {
+    private let closure: () -> Void
+    private let showsSelection: Bool
+    private var isHovered = false
+
+    init(symbol: String, label: String, showsSelection: Bool, action: @escaping () -> Void) {
+        self.showsSelection = showsSelection
         closure = action
         super.init(frame: .zero)
-        image = NSImage(systemSymbolName: tool.symbol, accessibilityDescription: tool.rawValue)
+        let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .regular)
+        image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)?.withSymbolConfiguration(config)
+        imagePosition = .imageOnly
+        isBordered = false
+        focusRingType = .none
+        contentTintColor = .labelColor
         target = self
         self.action = #selector(invoke)
+        setAccessibilityLabel(label)
+        widthAnchor.constraint(equalToConstant: 30).isActive = true
+        heightAnchor.constraint(equalToConstant: 26).isActive = true
     }
 
     required init?(coder: NSCoder) { nil }
-    @objc private func invoke() { closure(tool) }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        let options: NSTrackingArea.Options = [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect]
+        addTrackingArea(NSTrackingArea(rect: .zero, options: options, owner: self, userInfo: nil))
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        isHovered = true
+        needsDisplay = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isHovered = false
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let selected = showsSelection && state == .on
+        if selected || isHovered {
+            let alpha: CGFloat = selected ? 0.10 : 0.06
+            NSColor.labelColor.withAlphaComponent(alpha).setFill()
+            let highlightRect = bounds.insetBy(dx: 3, dy: 3)
+            NSBezierPath(roundedRect: highlightRect, xRadius: 5, yRadius: 5).fill()
+        }
+        super.draw(dirtyRect)
+    }
+
+    func setSelected(_ selected: Bool) {
+        state = selected ? .on : .off
+        contentTintColor = .labelColor
+        needsDisplay = true
+    }
+
+    @objc private func invoke() { closure() }
+}
+
+@MainActor
+private final class CenteredClipView: NSClipView {
+    override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect {
+        var constrained = super.constrainBoundsRect(proposedBounds)
+        guard let documentView else { return constrained }
+        let documentFrame = documentView.frame
+        if constrained.width > documentFrame.width {
+            constrained.origin.x = documentFrame.midX - constrained.width / 2
+        }
+        if constrained.height > documentFrame.height {
+            constrained.origin.y = documentFrame.midY - constrained.height / 2
+        }
+        return constrained
+    }
 }
 
 @MainActor

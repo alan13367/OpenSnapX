@@ -1,8 +1,8 @@
 .DS_Store
 .build/
+Config/Signing.local.xcconfig
 DerivedData/
 *.xcuserstate
 xcuserdata/
 OpenSnapX.xcodeproj/project.xcworkspace/xcuserdata/
 OpenSnapX.xcodeproj/xcuserdata/
-

@@ -58,6 +58,7 @@
 		1A99A751402F3778AAA6F4DC /* ImageRendererTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageRendererTests.swift; sourceTree = "<group>"; };
 		1AC7B39E6678B603F8B0F1FB /* HistoryWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryWindowController.swift; sourceTree = "<group>"; };
 		1FAA31D951076D7C310E85C0 /* SettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsStore.swift; sourceTree = "<group>"; };
+		228875F2128C08F11E107EB3 /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
 		24333E5B2BB8705A99205456 /* OpenSnapX.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OpenSnapX.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		2AB10C59EF2465904FDB1B53 /* ShortcutSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutSettingsTests.swift; sourceTree = "<group>"; };
 		32E1E022B0FFE80093213484 /* CapturePaletteWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CapturePaletteWindowController.swift; sourceTree = "<group>"; };
@@ -103,6 +104,14 @@
 				7094A98DA55272A8DD061485 /* ShortcutManager.swift */,
 			);
 			path = Services;
+			sourceTree = "<group>";
+		};
+		213EACA3B94E9AB912E719FF /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				228875F2128C08F11E107EB3 /* Signing.xcconfig */,
+			);
+			path = Config;
 			sourceTree = "<group>";
 		};
 		6DFFD7DB2590D0BE1D2D2573 /* Models */ = {
@@ -151,6 +160,7 @@
 		B6B10C78AB518BE534225E37 = {
 			isa = PBXGroup;
 			children = (
+				213EACA3B94E9AB912E719FF /* Config */,
 				6F8FF5223D239D6C7F42DA49 /* OpenSnapX */,
 				9067534942D9B6BD3C4C2C99 /* OpenSnapXTests */,
 				B3C5C1288BDC8FA9D75B606E /* Products */,
@@ -368,13 +378,11 @@
 		};
 		2D9877A9F0B442ECEEA35910 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 228875F2128C08F11E107EB3 /* Signing.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = OpenSnapX/Resources/OpenSnapX.entitlements;
-				CODE_SIGN_IDENTITY = "-";
-				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = OpenSnapX/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -468,13 +476,11 @@
 		};
 		CC5449C2AC09693F8F70E1E8 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 228875F2128C08F11E107EB3 /* Signing.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = OpenSnapX/Resources/OpenSnapX.entitlements;
-				CODE_SIGN_IDENTITY = "-";
-				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = OpenSnapX/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
