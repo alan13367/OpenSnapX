@@ -24,7 +24,7 @@ final class OnboardingWindowController: NSWindowController {
         self.onFinish = onFinish
 
         let window = NSWindow(
-            contentRect: CGRect(x: 0, y: 0, width: 760, height: 650),
+            contentRect: CGRect(x: 0, y: 0, width: 760, height: 700),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -32,7 +32,7 @@ final class OnboardingWindowController: NSWindowController {
         window.title = "Welcome to OpenSnapX"
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = true
-        window.minSize = NSSize(width: 720, height: 620)
+        window.minSize = NSSize(width: 720, height: 680)
         window.backgroundColor = .windowBackgroundColor
         super.init(window: window)
         window.delegate = self
@@ -202,7 +202,7 @@ final class OnboardingWindowController: NSWindowController {
         detail.textColor = .secondaryLabelColor
         detail.lineBreakMode = .byTruncatingTail
         let labels = verticalStack([title, detail], spacing: 2)
-        labels.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        labels.widthAnchor.constraint(equalToConstant: 224).isActive = true
 
         let recorder = ShortcutRecorderControl(shortcut: settings.shortcut(for: action))
         recorder.onChange = { [weak self] shortcut in
@@ -217,17 +217,20 @@ final class OnboardingWindowController: NSWindowController {
         status.font = .systemFont(ofSize: 11, weight: .medium)
         status.alignment = .left
         status.lineBreakMode = .byTruncatingTail
-        status.widthAnchor.constraint(equalToConstant: 92).isActive = true
+        status.widthAnchor.constraint(equalToConstant: 96).isActive = true
         shortcutStatusLabels[action] = status
 
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         let row = horizontalStack([
             symbolView(action.symbolName, size: 14, color: .secondaryLabelColor),
             labels,
             recorder,
-            status
+            status,
+            spacer
         ], spacing: 10)
         row.alignment = .centerY
-        row.edgeInsets = NSEdgeInsets(top: 4, left: 4, bottom: 4, right: 0)
+        row.edgeInsets = NSEdgeInsets(top: 4, left: 0, bottom: 4, right: 0)
         row.heightAnchor.constraint(equalToConstant: 45).isActive = true
         return row
     }

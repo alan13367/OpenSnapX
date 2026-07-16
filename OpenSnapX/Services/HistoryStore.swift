@@ -36,28 +36,25 @@ actor LocalHistoryStore: HistoryStore {
 
     func create(from result: CaptureResult) async throws -> CaptureSession {
         try ensureRoot()
-        let manifest = CaptureManifest(
-            id: result.id,
-            createdAt: result.createdAt,
-            modifiedAt: result.createdAt,
-            captureMode: result.mode,
-            pixelWidth: result.image.width,
-            pixelHeight: result.image.height,
-            displayScale: result.displayScale,
-            sourceRect: result.sourceRect
-        )
-        let session = CaptureSession(manifest: manifest, annotations: [], ocrResults: [])
+        let session = CaptureSession(captureResult: result)
         let temporaryURL = rootURL.appendingPathComponent(".\(result.id.uuidString).tmp", isDirectory: true)
         let finalURL = packageURL(for: result.id)
 
         try? fileManager.removeItem(at: temporaryURL)
         try fileManager.createDirectory(at: temporaryURL, withIntermediateDirectories: true)
         do {
-            try ImageCodec.data(from: result.image, format: .png)
-                .write(to: temporaryURL.appendingPathComponent("source.png"), options: .atomic)
+            try ImageCodec.write(
+                result.image,
+                to: temporaryURL.appendingPathComponent("source.png"),
+                format: .png
+            )
             let thumbnail = try ImageCodec.thumbnail(from: result.image)
-            try ImageCodec.data(from: thumbnail, format: .jpeg, quality: 0.82)
-                .write(to: temporaryURL.appendingPathComponent("thumbnail.jpg"), options: .atomic)
+            try ImageCodec.write(
+                thumbnail,
+                to: temporaryURL.appendingPathComponent("thumbnail.jpg"),
+                format: .jpeg,
+                quality: 0.82
+            )
             try writeMetadata(session, into: temporaryURL)
             try? fileManager.removeItem(at: finalURL)
             try fileManager.moveItem(at: temporaryURL, to: finalURL)

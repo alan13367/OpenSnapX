@@ -29,6 +29,12 @@ final class HistoryStoreTests: XCTestCase {
         XCTAssertTrue(afterDelete.isEmpty)
     }
 
+    func testThumbnailPreservesAspectRatioWithinMaximumSize() throws {
+        let thumbnail = try ImageCodec.thumbnail(from: solidImage(width: 1_200, height: 800), maximumPixelSize: 480)
+        XCTAssertEqual(thumbnail.width, 480)
+        XCTAssertEqual(thumbnail.height, 320)
+    }
+
     func testCleanupExpiresOldSessionsAndIgnoresCorruptEntries() async throws {
         let store = LocalHistoryStore(rootURL: root)
         let old = CaptureResult(image: try solidImage(width: 8, height: 8), mode: .display, createdAt: Date(timeIntervalSinceNow: -10 * 86_400))

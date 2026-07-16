@@ -10,7 +10,7 @@ OpenSnapX is a native, local-first screenshot and annotation utility for macOS. 
 
 ## What works
 
-- Area, window, display, delayed, scrolling, and text capture
+- Area, window, display, scrolling, and text capture
 - Multi-display overlays with dimensions, keyboard adjustment, and window snapping
 - ScreenCaptureKit still capture with on-device Vision OCR
 - Direct-to-editor capture flow with clipboard, PNG/JPEG save, and the macOS Share sheet
@@ -55,7 +55,7 @@ xcodebuild test \
 
 1. Grant Screen Recording access when prompted. OpenSnapX cannot capture without macOS consent.
 2. Assign capture shortcuts during onboarding or later in **OpenSnapX Settings**. macOS does not let third-party apps override its built-in screenshot actions, so if you keep `⌘⇧3`, `⌘⇧4`, or `⌘⇧5`, open **System Settings → Keyboard → Keyboard Shortcuts → Screenshots** and turn off the matching Apple shortcuts. OpenSnapX never changes system preferences for you.
-3. With those Apple shortcuts turned off, use `⌘⇧3` for a display, `⌘⇧4` for an area/window, `⌘⇧5` for the palette, and `⌘⇧2` for direct OCR. You can instead record conflict-free combinations in OpenSnapX.
+3. With those Apple shortcuts turned off, use `⌘⇧3` for a display, `⌘⇧4` for an area/window, `⌘⇧5` for scrolling capture, and `⌘⇧2` for direct OCR. You can instead record conflict-free combinations in OpenSnapX.
 
 Locally rebuilt ad-hoc-signed apps can cause macOS to request Screen Recording permission again. The build script avoids that when a local Apple Development certificate is installed. Signed and notarized downloadable builds require a future Apple Developer Program membership.
 

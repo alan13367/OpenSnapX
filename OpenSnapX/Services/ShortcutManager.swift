@@ -5,12 +5,12 @@ enum ShortcutAction: UInt32, CaseIterable, Sendable {
     case captureText = 2
     case captureDisplay = 3
     case captureRegion = 4
-    case capturePalette = 5
+    case captureScrolling = 5
 
     static let presentationOrder: [ShortcutAction] = [
         .captureRegion,
         .captureDisplay,
-        .capturePalette,
+        .captureScrolling,
         .captureText
     ]
 
@@ -19,7 +19,7 @@ enum ShortcutAction: UInt32, CaseIterable, Sendable {
         case .captureText: "Capture Text"
         case .captureDisplay: "Capture Display"
         case .captureRegion: "Capture Area / Window"
-        case .capturePalette: "Capture Palette"
+        case .captureScrolling: "Scrolling Capture"
         }
     }
 
@@ -28,7 +28,7 @@ enum ShortcutAction: UInt32, CaseIterable, Sendable {
         case .captureText: "Select a region and copy recognized text"
         case .captureDisplay: "Capture the display under the pointer"
         case .captureRegion: "Drag an area or press Space for a window"
-        case .capturePalette: "Choose any capture mode and delay"
+        case .captureScrolling: "Select an area and stitch it as you scroll"
         }
     }
 
@@ -37,7 +37,7 @@ enum ShortcutAction: UInt32, CaseIterable, Sendable {
         case .captureText: "text.viewfinder"
         case .captureDisplay: "display"
         case .captureRegion: "viewfinder.rectangular"
-        case .capturePalette: "camera.viewfinder"
+        case .captureScrolling: "rectangle.stack"
         }
     }
 
@@ -47,7 +47,7 @@ enum ShortcutAction: UInt32, CaseIterable, Sendable {
         case .captureText: keyCode = UInt32(kVK_ANSI_2)
         case .captureDisplay: keyCode = UInt32(kVK_ANSI_3)
         case .captureRegion: keyCode = UInt32(kVK_ANSI_4)
-        case .capturePalette: keyCode = UInt32(kVK_ANSI_5)
+        case .captureScrolling: keyCode = UInt32(kVK_ANSI_5)
         }
         return ShortcutDefinition(
             keyCode: keyCode,

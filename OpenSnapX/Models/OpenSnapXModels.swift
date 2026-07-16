@@ -49,7 +49,6 @@ struct CanvasRect: Codable, Hashable, Sendable {
 
 struct CaptureRequest: Codable, Sendable {
     var mode: CaptureMode
-    var delaySeconds: Int = 0
     var includeCursor = false
     var displayID: UInt32?
     var selection: CanvasRect?
@@ -181,6 +180,27 @@ struct CaptureSession: Codable, Identifiable, Sendable {
     var manifest: CaptureManifest
     var annotations: [Annotation]
     var ocrResults: [OCRResult]
+
+    init(manifest: CaptureManifest, annotations: [Annotation], ocrResults: [OCRResult]) {
+        self.manifest = manifest
+        self.annotations = annotations
+        self.ocrResults = ocrResults
+    }
+
+    init(captureResult result: CaptureResult) {
+        manifest = CaptureManifest(
+            id: result.id,
+            createdAt: result.createdAt,
+            modifiedAt: result.createdAt,
+            captureMode: result.mode,
+            pixelWidth: result.image.width,
+            pixelHeight: result.image.height,
+            displayScale: result.displayScale,
+            sourceRect: result.sourceRect
+        )
+        annotations = []
+        ocrResults = []
+    }
 
     var id: UUID { manifest.id }
 }

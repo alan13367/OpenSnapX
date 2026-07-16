@@ -33,6 +33,17 @@ final class ModelAndGeometryTests: XCTestCase {
         XCTAssertEqual(moved.map(\.cgPoint), [CGPoint(x: 25, y: 15), CGPoint(x: 105, y: 55)])
     }
 
+    func testTranslatingAnnotationMovesFrameAndPointsTogether() {
+        let annotation = Annotation(
+            kind: .pen,
+            frame: CanvasRect(CGRect(x: 10, y: 20, width: 80, height: 40)),
+            points: [CanvasPoint(CGPoint(x: 10, y: 20)), CanvasPoint(CGPoint(x: 90, y: 60))]
+        )
+        let translated = AnnotationCanvasGeometry.translated(annotation, by: CGPoint(x: 12, y: 12))
+        XCTAssertEqual(translated.frame.cgRect, CGRect(x: 22, y: 32, width: 80, height: 40))
+        XCTAssertEqual(translated.points.map(\.cgPoint), [CGPoint(x: 22, y: 32), CGPoint(x: 102, y: 72)])
+    }
+
     func testResizingAnnotationPointsMovesLineEndpoints() {
         let points = [CanvasPoint(CGPoint(x: 10, y: 20)), CanvasPoint(CGPoint(x: 90, y: 60))]
         let resized = AnnotationCanvasGeometry.resizedPoints(
@@ -50,6 +61,29 @@ final class ModelAndGeometryTests: XCTestCase {
             to: CGPoint(x: 90, y: 20)
         )
         XCTAssertEqual(distance, 6, accuracy: 0.001)
+    }
+
+    func testCaptureResultBuildsImmediateInMemorySession() throws {
+        let createdAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let sourceRect = CanvasRect(CGRect(x: 10, y: 20, width: 320, height: 180))
+        let result = CaptureResult(
+            image: try solidImage(width: 320, height: 180),
+            mode: .region,
+            createdAt: createdAt,
+            displayScale: 2,
+            sourceRect: sourceRect
+        )
+        let session = CaptureSession(captureResult: result)
+
+        XCTAssertEqual(session.id, result.id)
+        XCTAssertEqual(session.manifest.createdAt, createdAt)
+        XCTAssertEqual(session.manifest.modifiedAt, createdAt)
+        XCTAssertEqual(session.manifest.pixelWidth, 320)
+        XCTAssertEqual(session.manifest.pixelHeight, 180)
+        XCTAssertEqual(session.manifest.displayScale, 2)
+        XCTAssertEqual(session.manifest.sourceRect, sourceRect)
+        XCTAssertTrue(session.annotations.isEmpty)
+        XCTAssertTrue(session.ocrResults.isEmpty)
     }
 
     func testCaptureSessionRoundTripsVersionedAnnotations() throws {

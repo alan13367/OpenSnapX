@@ -9,7 +9,6 @@ final class SettingsStore {
         static let historyRetentionDays = "historyRetentionDays"
         static let includeCursor = "includeCursor"
         static let captureSoundEnabled = "captureSoundEnabled"
-        static let defaultDelay = "defaultDelay"
         static let launchAtLogin = "launchAtLogin"
         static let exportFormat = "exportFormat"
     }
@@ -22,7 +21,6 @@ final class SettingsStore {
             Key.historyRetentionDays: 7,
             Key.includeCursor: false,
             Key.captureSoundEnabled: true,
-            Key.defaultDelay: 5,
             Key.launchAtLogin: false,
             Key.exportFormat: ExportFormat.png.rawValue
         ])
@@ -46,11 +44,6 @@ final class SettingsStore {
     var captureSoundEnabled: Bool {
         get { defaults.bool(forKey: Key.captureSoundEnabled) }
         set { defaults.set(newValue, forKey: Key.captureSoundEnabled) }
-    }
-
-    var defaultDelay: Int {
-        get { defaults.integer(forKey: Key.defaultDelay) }
-        set { defaults.set(newValue, forKey: Key.defaultDelay) }
     }
 
     var launchAtLogin: Bool {

@@ -63,19 +63,38 @@ struct AccelerateScrollingCaptureEngine: ScrollingCaptureEngine {
         let maximum = min(height - 12, Int(Double(height) * maximumOverlapFraction))
         let headerInset = min(48, height / 10)
         var best: ScrollStitchMatch?
+        let maximumComparableValues = max(8, maximum - headerInset) * sampleWidth
+        var differences = [Float](repeating: 0, count: maximumComparableValues)
 
-        for overlap in stride(from: minimum, through: maximum, by: max(2, height / 240)) {
-            let comparableRows = max(8, overlap - headerInset)
-            let previousStart = (height - comparableRows) * sampleWidth
-            let nextStart = headerInset * sampleWidth
-            let count = comparableRows * sampleWidth
-            guard previousStart + count <= previousGray.count, nextStart + count <= nextGray.count else { continue }
-            let lhs = Array(previousGray[previousStart..<(previousStart + count)])
-            let rhs = Array(nextGray[nextStart..<(nextStart + count)])
-            let differences = vDSP.subtract(lhs, rhs)
-            let mse = vDSP.meanSquare(differences)
-            if best == nil || mse < best!.score {
-                best = ScrollStitchMatch(overlapRows: overlap, score: mse)
+        previousGray.withUnsafeBufferPointer { previousBuffer in
+            nextGray.withUnsafeBufferPointer { nextBuffer in
+                differences.withUnsafeMutableBufferPointer { differenceBuffer in
+                    guard let previousBase = previousBuffer.baseAddress,
+                          let nextBase = nextBuffer.baseAddress,
+                          let differenceBase = differenceBuffer.baseAddress else { return }
+                    for overlap in stride(from: minimum, through: maximum, by: max(2, height / 240)) {
+                        let comparableRows = max(8, overlap - headerInset)
+                        let previousStart = (height - comparableRows) * sampleWidth
+                        let nextStart = headerInset * sampleWidth
+                        let count = comparableRows * sampleWidth
+                        guard previousStart + count <= previousGray.count,
+                              nextStart + count <= nextGray.count else { continue }
+                        vDSP_vsub(
+                            previousBase.advanced(by: previousStart),
+                            1,
+                            nextBase.advanced(by: nextStart),
+                            1,
+                            differenceBase,
+                            1,
+                            vDSP_Length(count)
+                        )
+                        var mse: Float = 0
+                        vDSP_measqv(differenceBase, 1, &mse, vDSP_Length(count))
+                        if best.map({ mse < $0.score }) ?? true {
+                            best = ScrollStitchMatch(overlapRows: overlap, score: mse)
+                        }
+                    }
+                }
             }
         }
         guard let best, best.score <= maximumMeanSquaredError else { throw OpenSnapXError.noScrollOverlap }

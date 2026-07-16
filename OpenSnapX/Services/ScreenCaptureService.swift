@@ -14,16 +14,28 @@ struct WindowCandidate: @unchecked Sendable {
 
 protocol CaptureService: Sendable {
     func capture(_ request: CaptureRequest) async throws -> CaptureResult
+    func captureDisplays(_ displayIDs: [UInt32]) async throws -> [UInt32: CaptureResult]
     func availableWindows() async throws -> [WindowCandidate]
+}
+
+extension CaptureService {
+    func captureDisplays(_ displayIDs: [UInt32]) async throws -> [UInt32: CaptureResult] {
+        var captures: [UInt32: CaptureResult] = [:]
+        captures.reserveCapacity(displayIDs.count)
+        for displayID in displayIDs {
+            captures[displayID] = try await capture(CaptureRequest(
+                mode: .display,
+                includeCursor: false,
+                displayID: displayID
+            ))
+        }
+        return captures
+    }
 }
 
 final class ScreenCaptureService: CaptureService, @unchecked Sendable {
     func capture(_ request: CaptureRequest) async throws -> CaptureResult {
         guard CGPreflightScreenCaptureAccess() else { throw OpenSnapXError.permissionDenied }
-
-        if request.delaySeconds > 0 {
-            try await Task.sleep(for: .seconds(request.delaySeconds))
-        }
 
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
         let ownBundleID = Bundle.main.bundleIdentifier
@@ -92,6 +104,46 @@ final class ScreenCaptureService: CaptureService, @unchecked Sendable {
         }
     }
 
+    func captureDisplays(_ displayIDs: [UInt32]) async throws -> [UInt32: CaptureResult] {
+        guard CGPreflightScreenCaptureAccess() else { throw OpenSnapXError.permissionDenied }
+        guard !displayIDs.isEmpty else { return [:] }
+
+        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        let ownBundleID = Bundle.main.bundleIdentifier
+        let excludedWindows = content.windows.filter {
+            $0.owningApplication?.bundleIdentifier == ownBundleID
+        }
+        var captures: [UInt32: CaptureResult] = [:]
+        captures.reserveCapacity(displayIDs.count)
+
+        for displayID in displayIDs {
+            guard let display = content.displays.first(where: { $0.displayID == displayID }) else {
+                throw OpenSnapXError.displayNotFound
+            }
+            let displayScale = scale(for: display)
+            let captureSize = DisplayGeometry.pixelSize(
+                from: CGSize(width: display.width, height: display.height),
+                scale: displayScale
+            )
+            let filter = SCContentFilter(display: display, excludingWindows: excludedWindows)
+            let configuration = makeConfiguration(
+                width: max(1, Int(captureSize.width)),
+                height: max(1, Int(captureSize.height)),
+                includeCursor: false
+            )
+            let image = try await SCScreenshotManager.captureImage(
+                contentFilter: filter,
+                configuration: configuration
+            )
+            captures[displayID] = CaptureResult(
+                image: normalizedSRGB(image),
+                mode: .display,
+                displayScale: displayScale
+            )
+        }
+        return captures
+    }
+
     func availableWindows() async throws -> [WindowCandidate] {
         let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
         let ownBundleID = Bundle.main.bundleIdentifier
@@ -157,6 +209,7 @@ final class ScreenCaptureService: CaptureService, @unchecked Sendable {
     }
 
     private func normalizedSRGB(_ image: CGImage) -> CGImage {
+        guard image.colorSpace?.name != CGColorSpace.sRGB else { return image }
         guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
               let context = CGContext(
                 data: nil,

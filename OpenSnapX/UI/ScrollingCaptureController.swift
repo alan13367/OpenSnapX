@@ -39,14 +39,28 @@ final class ScrollingCaptureController {
         panel?.orderOut(nil)
         panel?.close()
         panel = nil
-        do {
-            guard !frames.isEmpty else { throw OpenSnapXError.selectionCancelled }
-            let image = try engine.stitch(frames)
-            continuation?.resume(returning: image)
-        } catch {
-            continuation?.resume(throwing: error)
+        statusLabel = nil
+        guard !frames.isEmpty else {
+            continuation?.resume(throwing: OpenSnapXError.selectionCancelled)
+            continuation = nil
+            return
         }
-        continuation = nil
+
+        let capturedFrames = frames
+        frames.removeAll()
+        fingerprints.removeAll()
+        let engine = self.engine
+        Task {
+            do {
+                let image = try await Task.detached(priority: .userInitiated) {
+                    try engine.stitch(capturedFrames)
+                }.value
+                continuation?.resume(returning: image)
+            } catch {
+                continuation?.resume(throwing: error)
+            }
+            continuation = nil
+        }
     }
 
     func cancel() {
@@ -56,6 +70,9 @@ final class ScrollingCaptureController {
         panel?.orderOut(nil)
         panel?.close()
         panel = nil
+        statusLabel = nil
+        frames.removeAll()
+        fingerprints.removeAll()
         continuation?.resume(throwing: OpenSnapXError.selectionCancelled)
         continuation = nil
     }
@@ -66,12 +83,17 @@ final class ScrollingCaptureController {
         while !Task.isCancelled, frames.count < 80 {
             do {
                 let result = try await captureService.capture(request)
+                guard !Task.isCancelled else { return }
                 let payload = ImagePayload(image: result.image)
                 let fingerprint = fingerprint(result.image)
                 if fingerprints.last != fingerprint {
                     if let previous = frames.last {
                         do {
-                            _ = try engine.match(previous: previous, next: payload)
+                            let engine = self.engine
+                            _ = try await Task.detached(priority: .userInitiated) {
+                                try engine.match(previous: previous, next: payload)
+                            }.value
+                            guard !Task.isCancelled else { return }
                             failedMatches = 0
                             frames.append(payload)
                             fingerprints.append(fingerprint)

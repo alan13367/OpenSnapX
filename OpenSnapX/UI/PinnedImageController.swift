@@ -1,7 +1,7 @@
 import AppKit
 
 @MainActor
-final class PinnedImageController {
+final class PinnedImageController: NSObject, NSWindowDelegate {
     private var panels: [NSPanel] = []
 
     func pin(_ image: CGImage) {
@@ -22,10 +22,16 @@ final class PinnedImageController {
         panel.hasShadow = true
         panel.contentAspectRatio = CGSize(width: image.width, height: image.height)
         panel.minSize = CGSize(width: 120, height: 80)
+        panel.delegate = self
         panel.contentView = PinnedContentView(image: image, panel: panel)
         panel.center()
         panel.orderFrontRegardless()
         panels.append(panel)
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        guard let panel = notification.object as? NSPanel else { return }
+        panels.removeAll { $0 === panel }
     }
 }
 

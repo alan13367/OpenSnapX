@@ -25,7 +25,6 @@
 		738359CE39E386C31C64843D /* OCRService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F20437A257A1EE73ED66F78D /* OCRService.swift */; };
 		7B3D7E0BAA420E08385512C8 /* ImageCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5B7342B509D01F8BB3A91EB /* ImageCodec.swift */; };
 		8104059B9BF4FD689B77CD9E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D7E67877613668E83743B77D /* Assets.xcassets */; };
-		824CF90D98D47A3A96F09CC5 /* CapturePaletteWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32E1E022B0FFE80093213484 /* CapturePaletteWindowController.swift */; };
 		82D0FEA826AE323D57E8C2D6 /* SettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FAA31D951076D7C310E85C0 /* SettingsStore.swift */; };
 		85FC60860A2D22C32C2453E3 /* PinnedImageController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B42512FD6CFB41064E454F63 /* PinnedImageController.swift */; };
 		8DFF096F48BD02286FDA29A9 /* OpenSnapXModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 077227E4597895DE04CDF2C1 /* OpenSnapXModels.swift */; };
@@ -62,7 +61,6 @@
 		24333E5B2BB8705A99205456 /* OpenSnapX.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OpenSnapX.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		2AB10C59EF2465904FDB1B53 /* ShortcutSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutSettingsTests.swift; sourceTree = "<group>"; };
 		2C79FF996AA28B6050E800A7 /* CaptureSoundService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureSoundService.swift; sourceTree = "<group>"; };
-		32E1E022B0FFE80093213484 /* CapturePaletteWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CapturePaletteWindowController.swift; sourceTree = "<group>"; };
 		3747C4B6293991C7701E73A3 /* ExportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportService.swift; sourceTree = "<group>"; };
 		38A9A269149B4B5CA65F96FE /* ScreenCaptureService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenCaptureService.swift; sourceTree = "<group>"; };
 		51C4468E6661698246E3CE68 /* ShortcutRecorderControl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutRecorderControl.swift; sourceTree = "<group>"; };
@@ -189,7 +187,6 @@
 			isa = PBXGroup;
 			children = (
 				5F7F6D99C5943C7BDC088F71 /* CaptureOverlayController.swift */,
-				32E1E022B0FFE80093213484 /* CapturePaletteWindowController.swift */,
 				A3211F5B2618CF375B6815B7 /* EditorWindowController.swift */,
 				1AC7B39E6678B603F8B0F1FB /* HistoryWindowController.swift */,
 				6AF472DA4200D391ED21DA52 /* OnboardingWindowController.swift */,
@@ -308,7 +305,6 @@
 				5B4E5FBE8732BB289A2BB5E0 /* AppCoordinator.swift in Sources */,
 				CE63113B23CA3C8210606911 /* AppDelegate.swift in Sources */,
 				ADBEAB345BA9DEFE041F436E /* CaptureOverlayController.swift in Sources */,
-				824CF90D98D47A3A96F09CC5 /* CapturePaletteWindowController.swift in Sources */,
 				41A8055A38BA0C5F60C4F19F /* CaptureSoundService.swift in Sources */,
 				D0A04888190924725F066B41 /* Color.swift in Sources */,
 				61B92B8F0120C022E0F523C7 /* EditorWindowController.swift in Sources */,

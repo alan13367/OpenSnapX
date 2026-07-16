@@ -23,7 +23,6 @@ final class AppCoordinator: NSObject {
     private var onboardingController: OnboardingWindowController?
     private var settingsController: SettingsWindowController?
     private var historyController: HistoryWindowController?
-    private var paletteController: CapturePaletteWindowController?
     private var editorControllers: [UUID: EditorWindowController] = [:]
     private var latestEditorID: UUID?
     private var scrollingController: ScrollingCaptureController?
@@ -64,9 +63,8 @@ final class AppCoordinator: NSObject {
         menu.addItem(captureItem("Capture Area", #selector(captureRegion), shortcut: .captureRegion))
         menu.addItem(item("Capture Window", #selector(captureWindow)))
         menu.addItem(captureItem("Capture Display", #selector(captureDisplay), shortcut: .captureDisplay))
-        menu.addItem(item("Scrolling Capture", #selector(captureScrolling)))
+        menu.addItem(captureItem("Scrolling Capture", #selector(captureScrolling), shortcut: .captureScrolling))
         menu.addItem(captureItem("Capture Text", #selector(captureText), shortcut: .captureText))
-        menu.addItem(captureItem("Capture Palette…", #selector(showPalette), shortcut: .capturePalette))
         if !shortcutConflicts.isEmpty {
             let warning = NSMenuItem(title: "⚠ Screenshot shortcut conflict", action: #selector(showOnboarding), keyEquivalent: "")
             warning.target = self
@@ -130,7 +128,7 @@ final class AppCoordinator: NSObject {
         case .captureText: performCapture(mode: .text)
         case .captureDisplay: performCapture(mode: .display)
         case .captureRegion: performCapture(mode: .region)
-        case .capturePalette: showPalette()
+        case .captureScrolling: performCapture(mode: .scrolling)
         }
     }
 
@@ -140,7 +138,7 @@ final class AppCoordinator: NSObject {
     @objc private func captureScrolling() { performCapture(mode: .scrolling) }
     @objc private func captureText() { performCapture(mode: .text) }
 
-    private func performCapture(mode: CaptureMode, delay: Int = 0) {
+    private func performCapture(mode: CaptureMode) {
         guard permissionService.isAuthorized else {
             showOnboarding()
             return
@@ -152,13 +150,10 @@ final class AppCoordinator: NSObject {
                 if mode == .display {
                     let screen = DisplayGeometry.screen(containing: NSEvent.mouseLocation) ?? NSScreen.main
                     let displayID = screen.flatMap(DisplayGeometry.displayID(for:))
-                    result = try await captureService.capture(CaptureRequest(mode: .display, delaySeconds: delay, includeCursor: settings.includeCursor, displayID: displayID))
+                    result = try await captureService.capture(CaptureRequest(mode: .display, includeCursor: settings.includeCursor, displayID: displayID))
                 } else {
                     let candidates = mode == .window ? try await captureService.availableWindows() : []
                     let freezesSelection = mode == .region || mode == .text
-                    if freezesSelection, delay > 0 {
-                        try await Task.sleep(for: .seconds(delay))
-                    }
                     let frozenDisplays = freezesSelection ? try await captureFrozenDisplays() : [:]
                     let selection = try await overlayController.select(
                         mode: mode,
@@ -167,7 +162,6 @@ final class AppCoordinator: NSObject {
                     )
                     let request = CaptureRequest(
                         mode: selection.mode == .window ? .window : mode,
-                        delaySeconds: freezesSelection ? 0 : delay,
                         includeCursor: settings.includeCursor,
                         displayID: selection.displayID,
                         selection: selection.pixelRect,
@@ -185,9 +179,14 @@ final class AppCoordinator: NSObject {
                     } else if mode == .scrolling {
                         let controller = ScrollingCaptureController(captureService: captureService, engine: scrollingEngine)
                         scrollingController = controller
-                        let stitched = try await controller.start(request: request)
-                        scrollingController = nil
-                        result = CaptureResult(image: stitched.image, mode: .scrolling, displayScale: 1, sourceRect: selection.pixelRect)
+                        do {
+                            let stitched = try await controller.start(request: request)
+                            scrollingController = nil
+                            result = CaptureResult(image: stitched.image, mode: .scrolling, displayScale: 1, sourceRect: selection.pixelRect)
+                        } catch {
+                            scrollingController = nil
+                            throw error
+                        }
                     } else {
                         result = try await captureService.capture(request)
                     }
@@ -203,17 +202,9 @@ final class AppCoordinator: NSObject {
     }
 
     private func captureFrozenDisplays() async throws -> [UInt32: CGImage] {
-        var images: [UInt32: CGImage] = [:]
-        for screen in NSScreen.screens {
-            guard let displayID = DisplayGeometry.displayID(for: screen) else { continue }
-            let snapshot = try await captureService.capture(CaptureRequest(
-                mode: .display,
-                includeCursor: false,
-                displayID: displayID
-            ))
-            images[displayID] = snapshot.image
-        }
-        return images
+        let displayIDs = NSScreen.screens.compactMap(DisplayGeometry.displayID(for:))
+        let captures = try await captureService.captureDisplays(displayIDs)
+        return captures.mapValues(\.image)
     }
 
     private func frozenRegionResult(
@@ -251,19 +242,55 @@ final class AppCoordinator: NSObject {
     }
 
     private func completeCapture(_ result: CaptureResult) async throws {
-        let session = try await historyStore.create(from: result)
-        await rebuildMenu()
         if result.mode == .text {
-            let results = try await ocrService.recognize(ImagePayload(image: result.image))
-            var updated = session
-            updated.ocrResults = results
-            try await historyStore.save(updated)
+            let results: [OCRResult]
+            do {
+                results = try await ocrService.recognize(ImagePayload(image: result.image))
+            } catch {
+                Task(priority: .utility) {
+                    do {
+                        _ = try await historyStore.create(from: result)
+                        await rebuildMenu()
+                    } catch {
+                        present(error)
+                    }
+                }
+                throw error
+            }
+
             let text = results.map(\.text).joined(separator: "\n")
             if !text.isEmpty { exportService.copyText(text); showNotice("Text copied") }
             else { showNotice("No text recognized") }
+            Task(priority: .utility) {
+                do {
+                    var session = try await historyStore.create(from: result)
+                    session.ocrResults = results
+                    try await historyStore.save(session)
+                    await rebuildMenu()
+                } catch {
+                    present(error)
+                }
+            }
             return
         }
-        openEditor(session: session, image: result.image)
+
+        let session = CaptureSession(captureResult: result)
+        let initialPersistence = Task(priority: .utility) {
+            _ = try await historyStore.create(from: result)
+        }
+        openEditor(
+            session: session,
+            image: result.image,
+            initialPersistence: initialPersistence
+        )
+        Task {
+            do {
+                try await initialPersistence.value
+                await rebuildMenu()
+            } catch {
+                present(error)
+            }
+        }
     }
 
     private func openEditor(id: UUID) {
@@ -280,7 +307,11 @@ final class AppCoordinator: NSObject {
         }
     }
 
-    private func openEditor(session: CaptureSession, image: CGImage) {
+    private func openEditor(
+        session: CaptureSession,
+        image: CGImage,
+        initialPersistence: Task<Void, Error>? = nil
+    ) {
         let id = session.id
         latestEditorID = id
         if let editor = editorControllers[id] {
@@ -294,6 +325,7 @@ final class AppCoordinator: NSObject {
             renderer: renderer,
             ocrService: ocrService,
             exportService: exportService,
+            initialPersistence: initialPersistence,
             onDiscardCapture: { [weak self] id in
                 guard let self else { return }
                 try await self.discardCaptureFromEditor(id: id)
@@ -306,13 +338,6 @@ final class AppCoordinator: NSObject {
     func reopenLastEditor() {
         guard let latestEditorID else { return }
         openEditor(id: latestEditorID)
-    }
-
-    @objc private func showPalette() {
-        let controller = paletteController ?? CapturePaletteWindowController()
-        controller.onCapture = { [weak self] mode, delay in self?.performCapture(mode: mode, delay: delay) }
-        paletteController = controller
-        controller.show()
     }
 
     @objc private func showHistory() {

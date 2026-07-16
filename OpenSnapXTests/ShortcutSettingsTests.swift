@@ -22,6 +22,7 @@ final class ShortcutSettingsTests: XCTestCase {
         let reloaded = SettingsStore(defaults: defaults)
         XCTAssertEqual(reloaded.shortcut(for: .captureRegion), custom)
         XCTAssertEqual(reloaded.shortcut(for: .captureDisplay), ShortcutAction.captureDisplay.defaultShortcut)
+        XCTAssertEqual(reloaded.shortcut(for: .captureScrolling), ShortcutAction.captureScrolling.defaultShortcut)
     }
 
     func testCaptureSoundDefaultsToEnabledAndPersists() {
@@ -50,7 +51,7 @@ final class ShortcutSettingsTests: XCTestCase {
     func testKnownAppleScreenshotShortcutsAreIdentified() {
         XCTAssertTrue(ShortcutAction.captureDisplay.defaultShortcut.matchesBuiltInScreenshotShortcut)
         XCTAssertTrue(ShortcutAction.captureRegion.defaultShortcut.matchesBuiltInScreenshotShortcut)
-        XCTAssertTrue(ShortcutAction.capturePalette.defaultShortcut.matchesBuiltInScreenshotShortcut)
+        XCTAssertTrue(ShortcutAction.captureScrolling.defaultShortcut.matchesBuiltInScreenshotShortcut)
         XCTAssertFalse(ShortcutAction.captureText.defaultShortcut.matchesBuiltInScreenshotShortcut)
 
         let clipboardVariant = ShortcutDefinition(

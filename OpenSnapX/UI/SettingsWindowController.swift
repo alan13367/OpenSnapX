@@ -25,7 +25,7 @@ final class SettingsWindowController: NSWindowController {
         self.showOnboarding = showOnboarding
 
         let window = NSWindow(
-            contentRect: CGRect(x: 0, y: 0, width: 760, height: 760),
+            contentRect: CGRect(x: 0, y: 0, width: 760, height: 700),
             styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -33,7 +33,7 @@ final class SettingsWindowController: NSWindowController {
         window.title = "OpenSnapX Settings"
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = true
-        window.minSize = NSSize(width: 720, height: 720)
+        window.minSize = NSSize(width: 720, height: 680)
         window.backgroundColor = .windowBackgroundColor
         super.init(window: window)
         configure()
@@ -74,15 +74,28 @@ final class SettingsWindowController: NSWindowController {
         header.alignment = .centerY
         headerLabels.trailingAnchor.constraint(equalTo: header.trailingAnchor).isActive = true
 
+        let captureSection = makeCaptureSection()
+        let shortcutSection = makeShortcutSection()
+        let footer = makeFooter()
+        let flexibleSpace = NSView()
+        flexibleSpace.setContentHuggingPriority(.defaultLow, for: .vertical)
+        flexibleSpace.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+
+        for view in [header, captureSection, shortcutSection, footer] {
+            view.setContentHuggingPriority(.required, for: .vertical)
+            view.setContentCompressionResistancePriority(.required, for: .vertical)
+        }
+
         let root = verticalStack([
             header,
             separator(),
-            makeCaptureSection(),
+            captureSection,
             separator(),
-            makeShortcutSection(),
+            shortcutSection,
+            flexibleSpace,
             separator(),
-            makeFooter()
-        ], spacing: 16)
+            footer
+        ], spacing: 14)
         root.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(root)
 
@@ -124,17 +137,23 @@ final class SettingsWindowController: NSWindowController {
         )
 
         let options = verticalStack([
-            preferenceRow("History retention", detail: "How long editable captures stay on this Mac", control: retention)
+            preferenceRow("History retention", detail: "How long editable captures are kept", control: retention)
         ], spacing: 0)
 
         cursor.font = .systemFont(ofSize: 13)
         captureSound.font = .systemFont(ofSize: 13)
         launch.font = .systemFont(ofSize: 13)
+        cursor.widthAnchor.constraint(equalToConstant: 210).isActive = true
         let checkSpacer = NSView()
         checkSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         let captureChecks = horizontalStack([cursor, captureSound, checkSpacer], spacing: 24)
-        let checks = verticalStack([captureChecks, launch], spacing: 8)
-        checks.edgeInsets = NSEdgeInsets(top: 4, left: 34, bottom: 0, right: 0)
+        captureChecks.edgeInsets = NSEdgeInsets(top: 4, left: 34, bottom: 0, right: 0)
+
+        let launchSpacer = NSView()
+        launchSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let launchRow = horizontalStack([launch, launchSpacer], spacing: 0)
+        launchRow.edgeInsets = NSEdgeInsets(top: 0, left: 34, bottom: 0, right: 0)
+        let checks = verticalStack([captureChecks, launchRow], spacing: 8)
 
         return verticalStack([heading, options, checks], spacing: 10)
     }
@@ -193,8 +212,10 @@ final class SettingsWindowController: NSWindowController {
         detailLabel.lineBreakMode = .byTruncatingTail
 
         let labels = verticalStack([titleLabel, detailLabel], spacing: 2)
-        labels.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        let row = horizontalStack([labels, control], spacing: 16)
+        labels.widthAnchor.constraint(equalToConstant: 218).isActive = true
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let row = horizontalStack([labels, control, spacer], spacing: 16)
         row.alignment = .centerY
         row.edgeInsets = NSEdgeInsets(top: 6, left: 34, bottom: 6, right: 0)
         row.heightAnchor.constraint(equalToConstant: 48).isActive = true
@@ -211,7 +232,7 @@ final class SettingsWindowController: NSWindowController {
         detail.textColor = .secondaryLabelColor
         detail.lineBreakMode = .byTruncatingTail
         let labels = verticalStack([title, detail], spacing: 2)
-        labels.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        labels.widthAnchor.constraint(equalToConstant: 224).isActive = true
 
         let recorder = ShortcutRecorderControl(shortcut: settings.shortcut(for: action))
         recorder.onChange = { [weak self] shortcut in
@@ -226,12 +247,14 @@ final class SettingsWindowController: NSWindowController {
         status.font = .systemFont(ofSize: 11, weight: .medium)
         status.alignment = .left
         status.lineBreakMode = .byTruncatingTail
-        status.widthAnchor.constraint(equalToConstant: 88).isActive = true
+        status.widthAnchor.constraint(equalToConstant: 96).isActive = true
         shortcutStatusLabels[action] = status
 
-        let row = horizontalStack([icon, labels, recorder, status], spacing: 10)
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let row = horizontalStack([icon, labels, recorder, status, spacer], spacing: 10)
         row.alignment = .centerY
-        row.edgeInsets = NSEdgeInsets(top: 4, left: 4, bottom: 4, right: 0)
+        row.edgeInsets = NSEdgeInsets(top: 4, left: 0, bottom: 4, right: 0)
         row.heightAnchor.constraint(equalToConstant: 47).isActive = true
         return row
     }

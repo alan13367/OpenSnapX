@@ -78,6 +78,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     private let ocrService: any OCRService
     private let exportService: ExportService
     private let onDiscardCapture: (UUID) async throws -> Void
+    private var initialPersistence: Task<Void, Error>?
     private let canvas: EditorCanvasView
     private let scrollView = NSScrollView()
     private let colorWell = NSColorWell()
@@ -102,6 +103,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         renderer: any ImageRenderer,
         ocrService: any OCRService,
         exportService: ExportService,
+        initialPersistence: Task<Void, Error>? = nil,
         onDiscardCapture: @escaping (UUID) async throws -> Void
     ) {
         self.session = session
@@ -110,6 +112,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         self.renderer = renderer
         self.ocrService = ocrService
         self.exportService = exportService
+        self.initialPersistence = initialPersistence
         self.onDiscardCapture = onDiscardCapture
         canvas = EditorCanvasView(image: image, annotations: session.annotations, ocrResults: session.ocrResults)
         let window = NSWindow(
@@ -172,7 +175,10 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         )
         guard !isDiscardingCapture else { return }
         let session = self.session
-        Task { try? await historyStore.save(session) }
+        Task {
+            guard (try? await waitForInitialPersistence()) != nil else { return }
+            try? await historyStore.save(session)
+        }
     }
 
     private func configureUI() {
@@ -695,6 +701,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         persistTask?.cancel()
         Task {
             do {
+                try await waitForInitialPersistence()
                 try await onDiscardCapture(session.id)
                 window?.close()
             } catch {
@@ -799,22 +806,29 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     }
 
     @objc private func copyRendered() {
-        do {
-            exportService.copy(try renderedImage())
-            window?.close()
-        } catch {
-            present(error)
+        Task {
+            do {
+                exportService.copy(try await renderedImage())
+                window?.close()
+            } catch {
+                present(error)
+            }
         }
     }
 
     @objc private func saveRendered() {
         Task {
-            do { _ = try await exportService.save(try renderedImage()) } catch { present(error) }
+            do { _ = try await exportService.save(try await renderedImage()) } catch { present(error) }
         }
     }
 
-    private func renderedImage() throws -> CGImage {
-        try renderer.render(source: ImagePayload(image: sourceImage), session: session, options: ExportOptions()).image
+    private func renderedImage() async throws -> CGImage {
+        let renderer = self.renderer
+        let source = ImagePayload(image: sourceImage)
+        let session = self.session
+        return try await Task.detached(priority: .userInitiated) {
+            try renderer.render(source: source, session: session, options: ExportOptions()).image
+        }.value
     }
 
     private func copyOCRResults(_ results: [OCRResult]) {
@@ -833,9 +847,17 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         let session = self.session
         persistTask = Task {
             try? await Task.sleep(for: .milliseconds(350))
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled,
+                  (try? await waitForInitialPersistence()) != nil,
+                  !Task.isCancelled else { return }
             try? await historyStore.save(session)
         }
+    }
+
+    private func waitForInitialPersistence() async throws {
+        guard let initialPersistence else { return }
+        try await initialPersistence.value
+        self.initialPersistence = nil
     }
 
     private func showTransientMessage(_ text: String, style: EditorNoticeStyle) {
@@ -882,7 +904,9 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
             context.timingFunction = CAMediaTimingFunction(name: .easeIn)
             notice.animator().alphaValue = 0
         } completionHandler: {
-            notice.removeFromSuperview()
+            MainActor.assumeIsolated {
+                notice.removeFromSuperview()
+            }
         }
     }
 
@@ -1067,6 +1091,13 @@ private final class CenteredClipView: NSClipView {
 }
 
 struct AnnotationCanvasGeometry {
+    static func translated(_ annotation: Annotation, by delta: CGPoint) -> Annotation {
+        var translated = annotation
+        translated.frame = CanvasRect(annotation.frame.cgRect.offsetBy(dx: delta.x, dy: delta.y))
+        translated.points = movedPoints(annotation.points, by: delta)
+        return translated
+    }
+
     static func movedPoints(_ points: [CanvasPoint], by delta: CGPoint) -> [CanvasPoint] {
         points.map { CanvasPoint(CGPoint(x: $0.x + delta.x, y: $0.y + delta.y)) }
     }
@@ -1137,8 +1168,7 @@ final class EditorCanvasView: NSView {
 
     private let image: CGImage
     private let effectContext = CIContext(options: [.cacheIntermediates: false])
-    private lazy var blurredPreviewImage = makeEffectPreview(kind: .blur)
-    private lazy var pixelatedPreviewImage = makeEffectPreview(kind: .pixelate)
+    private let effectPreviewCache = NSCache<NSString, CGImage>()
     private var draft: Annotation?
     private var selectedID: UUID?
     private var dragStart: CGPoint?
@@ -1336,17 +1366,16 @@ final class EditorCanvasView: NSView {
         } else if event.modifierFlags.contains(.command), event.charactersIgnoringModifiers == "c",
                   let selectedID, let selected = annotations.first(where: { $0.id == selectedID }) {
             copiedAnnotation = selected
-        } else if event.modifierFlags.contains(.command), event.charactersIgnoringModifiers == "v", var copy = copiedAnnotation {
+        } else if event.modifierFlags.contains(.command), event.charactersIgnoringModifiers == "v", let copiedAnnotation {
+            var copy = AnnotationCanvasGeometry.translated(copiedAnnotation, by: CGPoint(x: 12, y: 12))
             copy.id = UUID()
-            copy.frame = CanvasRect(copy.frame.cgRect.offsetBy(dx: 12, dy: 12))
             annotations.append(copy)
             selectedID = copy.id
             onAnnotationsChanged?(annotations)
         } else if event.modifierFlags.contains(.command), event.charactersIgnoringModifiers == "d",
                   let selectedID, let selected = annotations.first(where: { $0.id == selectedID }) {
-            var copy = selected
+            var copy = AnnotationCanvasGeometry.translated(selected, by: CGPoint(x: 12, y: 12))
             copy.id = UUID()
-            copy.frame = CanvasRect(copy.frame.cgRect.offsetBy(dx: 12, dy: 12))
             annotations.append(copy)
             self.selectedID = copy.id
             onAnnotationsChanged?(annotations)
@@ -1369,13 +1398,19 @@ final class EditorCanvasView: NSView {
             let start = annotation.points.first?.cgPoint ?? frame.origin
             let end = annotation.points.last?.cgPoint ?? CGPoint(x: frame.maxX, y: frame.maxY)
             path.move(to: start); path.line(to: end); path.stroke()
-            if annotation.kind == .arrow { drawArrow(from: start, to: end, style: annotation.style) }
+            if annotation.kind == .arrow, annotation.style.arrowHead != .none {
+                drawArrow(from: start, to: end, style: annotation.style)
+                if annotation.style.arrowHead == .both {
+                    drawArrow(from: end, to: start, style: annotation.style)
+                }
+            }
         case .rectangle, .redact, .blur, .pixelate, .crop:
             let rectPath = NSBezierPath(rect: frame)
             if annotation.kind == .redact { (annotation.style.fillColor?.nsColor ?? .black).setFill(); rectPath.fill() }
             else if annotation.kind == .blur || annotation.kind == .pixelate {
-                let preview = annotation.kind == .blur ? blurredPreviewImage : pixelatedPreviewImage
-                if let preview { drawCanvasImage(preview, clippedTo: frame) }
+                if let preview = effectPreviewImage(kind: annotation.kind) {
+                    drawCanvasImage(preview, clippedTo: frame)
+                }
                 NSColor.controlAccentColor.withAlphaComponent(0.85).setStroke()
                 let dash: [CGFloat] = [6, 3]
                 rectPath.lineWidth = 1.5
@@ -1481,6 +1516,18 @@ final class EditorCanvasView: NSView {
         context.scaleBy(x: 1, y: -1)
         context.draw(canvasImage, in: bounds)
         context.restoreGState()
+    }
+
+    private func effectPreviewImage(kind: AnnotationKind) -> CGImage? {
+        let key = kind.rawValue as NSString
+        if let cached = effectPreviewCache.object(forKey: key) { return cached }
+        guard let preview = makeEffectPreview(kind: kind) else { return nil }
+        effectPreviewCache.setObject(
+            preview,
+            forKey: key,
+            cost: preview.bytesPerRow * preview.height
+        )
+        return preview
     }
 
     private func makeEffectPreview(kind: AnnotationKind) -> CGImage? {
