@@ -326,7 +326,7 @@ final class AppCoordinator: NSObject {
         controller.onOpen = { [weak self] id in self?.openEditor(id: id) }
         controller.onCopy = { [weak self] id in self?.withHistoryImage(id: id) { self?.exportService.copy($0) } }
         controller.onPin = { [weak self] id in self?.withHistoryImage(id: id) { self?.pinnedController.pin($0) } }
-        controller.onDelete = { [weak self] id in self?.deleteHistory(id: id) }
+        controller.onDelete = { [weak self] ids in self?.deleteHistory(ids: ids) }
         historyController = controller
         Task { await refreshHistoryWindow(controller); controller.show() }
     }
@@ -375,9 +375,11 @@ final class AppCoordinator: NSObject {
         }
     }
 
-    private func deleteHistory(id: UUID) {
+    private func deleteHistory(ids: [UUID]) {
         Task {
-            try? await historyStore.delete(id: id)
+            for id in ids {
+                try? await historyStore.delete(id: id)
+            }
             if let historyController { await refreshHistoryWindow(historyController) }
             await rebuildMenu()
         }

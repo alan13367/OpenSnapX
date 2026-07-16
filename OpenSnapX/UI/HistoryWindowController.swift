@@ -5,12 +5,13 @@ final class HistoryWindowController: NSWindowController, NSCollectionViewDataSou
     var onOpen: ((UUID) -> Void)?
     var onCopy: ((UUID) -> Void)?
     var onPin: ((UUID) -> Void)?
-    var onDelete: ((UUID) -> Void)?
+    var onDelete: (([UUID]) -> Void)?
 
     private var sessions: [CaptureSession] = []
     private var thumbnails: [UUID: CGImage] = [:]
     private let collectionView = NSCollectionView()
     private let emptyLabel = NSTextField(labelWithString: "No recent captures")
+    private var toolbarItems: [NSToolbarItem.Identifier: NSToolbarItem] = [:]
 
     init() {
         let window = NSWindow(
@@ -30,8 +31,10 @@ final class HistoryWindowController: NSWindowController, NSCollectionViewDataSou
     func update(_ sessions: [CaptureSession], thumbnails: [UUID: CGImage] = [:]) {
         self.sessions = sessions
         self.thumbnails = thumbnails
+        collectionView.selectionIndexPaths = []
         collectionView.reloadData()
         emptyLabel.isHidden = !sessions.isEmpty
+        updateSelectionActions()
     }
 
     func show() {
@@ -52,8 +55,11 @@ final class HistoryWindowController: NSWindowController, NSCollectionViewDataSou
     }
 
     func collectionView(_ collectionView: NSCollectionView, didSelectItemsAt indexPaths: Set<IndexPath>) {
-        guard let index = indexPaths.first?.item, sessions.indices.contains(index) else { return }
-        onOpen?(sessions[index].id)
+        updateSelectionActions()
+    }
+
+    func collectionView(_ collectionView: NSCollectionView, didDeselectItemsAt indexPaths: Set<IndexPath>) {
+        updateSelectionActions()
     }
 
     private func configure() {
@@ -67,6 +73,11 @@ final class HistoryWindowController: NSWindowController, NSCollectionViewDataSou
         collectionView.dataSource = self
         collectionView.delegate = self
         collectionView.isSelectable = true
+        collectionView.allowsMultipleSelection = true
+        let doubleClick = NSClickGestureRecognizer(target: self, action: #selector(openDoubleClickedItem(_:)))
+        doubleClick.numberOfClicksRequired = 2
+        doubleClick.delaysPrimaryMouseButtonEvents = false
+        collectionView.addGestureRecognizer(doubleClick)
         collectionView.register(HistoryItem.self, forItemWithIdentifier: HistoryItem.identifier)
         collectionView.backgroundColors = [.windowBackgroundColor]
 
@@ -90,15 +101,33 @@ final class HistoryWindowController: NSWindowController, NSCollectionViewDataSou
         window?.toolbar = toolbar
     }
 
-    private func selectedID() -> UUID? {
-        guard let index = collectionView.selectionIndexPaths.first?.item, sessions.indices.contains(index) else { return nil }
-        return sessions[index].id
+    private func selectedIDs() -> [UUID] {
+        collectionView.selectionIndexPaths
+            .map(\.item)
+            .filter { sessions.indices.contains($0) }
+            .sorted()
+            .map { sessions[$0].id }
     }
 
-    @objc private func openSelected() { if let id = selectedID() { onOpen?(id) } }
-    @objc private func copySelected() { if let id = selectedID() { onCopy?(id) } }
-    @objc private func pinSelected() { if let id = selectedID() { onPin?(id) } }
-    @objc private func deleteSelected() { if let id = selectedID() { onDelete?(id) } }
+    private func updateSelectionActions() {
+        let hasSelection = !collectionView.selectionIndexPaths.isEmpty
+        toolbarItems.values.forEach { $0.isEnabled = hasSelection }
+    }
+
+    @objc private func openDoubleClickedItem(_ gesture: NSClickGestureRecognizer) {
+        guard gesture.state == .ended,
+              let indexPath = collectionView.indexPathForItem(at: gesture.location(in: collectionView)),
+              sessions.indices.contains(indexPath.item) else { return }
+        onOpen?(sessions[indexPath.item].id)
+    }
+
+    @objc private func openSelected() { if let id = selectedIDs().first { onOpen?(id) } }
+    @objc private func copySelected() { if let id = selectedIDs().first { onCopy?(id) } }
+    @objc private func pinSelected() { if let id = selectedIDs().first { onPin?(id) } }
+    @objc private func deleteSelected() {
+        let ids = selectedIDs()
+        if !ids.isEmpty { onDelete?(ids) }
+    }
 }
 
 extension HistoryWindowController: NSToolbarDelegate {
@@ -120,6 +149,8 @@ extension HistoryWindowController: NSToolbarDelegate {
         default: return nil
         }
         item.target = self
+        item.isEnabled = !collectionView.selectionIndexPaths.isEmpty
+        toolbarItems[identifier] = item
         return item
     }
 }
