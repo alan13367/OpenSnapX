@@ -14,9 +14,9 @@ final class AppCoordinator: NSObject {
     private let ocrService: any OCRService = VisionOCRService()
     private let scrollingEngine: any ScrollingCaptureEngine = AccelerateScrollingCaptureEngine()
     private let exportService = ExportService()
+    private let captureSoundPlayer: any CaptureSoundPlaying = SystemCaptureSoundPlayer()
     private let shortcutManager: any ShortcutManager = CarbonShortcutManager()
     private let overlayController = CaptureOverlayController()
-    private let previewController = FloatingPreviewController()
     private let pinnedController = PinnedImageController()
 
     private var statusItem: NSStatusItem!
@@ -192,6 +192,7 @@ final class AppCoordinator: NSObject {
                         result = try await captureService.capture(request)
                     }
                 }
+                playCaptureSoundIfNeeded(for: result.mode)
                 try await completeCapture(result)
             } catch OpenSnapXError.selectionCancelled {
                 logger.debug("Capture cancelled")
@@ -239,6 +240,16 @@ final class AppCoordinator: NSObject {
         )
     }
 
+    private func playCaptureSoundIfNeeded(for mode: CaptureMode) {
+        guard settings.captureSoundEnabled else { return }
+        switch mode {
+        case .region, .window, .display:
+            captureSoundPlayer.playCaptureSound()
+        case .scrolling, .text:
+            break
+        }
+    }
+
     private func completeCapture(_ result: CaptureResult) async throws {
         let session = try await historyStore.create(from: result)
         await rebuildMenu()
@@ -252,28 +263,7 @@ final class AppCoordinator: NSObject {
             else { showNotice("No text recognized") }
             return
         }
-        if result.mode == .region {
-            openEditor(session: session, image: result.image)
-            return
-        }
-        switch settings.postCaptureAction {
-        case .preview: showPreview(session: session, image: result.image)
-        case .copy: exportService.copy(result.image); showNotice("Screenshot copied")
-        case .save: _ = try await exportService.save(result.image)
-        case .copyAndPreview: exportService.copy(result.image); showPreview(session: session, image: result.image)
-        }
-    }
-
-    private func showPreview(session: CaptureSession, image: CGImage) {
-        let id = session.id
-        previewController.show(id: id, image: image, duration: settings.previewDuration, actions: .init(
-            edit: { [weak self] in self?.previewController.dismiss(id: id); self?.openEditor(id: id) },
-            copy: { [weak self] in self?.exportService.copy(image); self?.showNotice("Screenshot copied") },
-            save: { [weak self] in Task { _ = try? await self?.exportService.save(image) } },
-            share: { [weak self] view in self?.exportService.share(image, relativeTo: view.bounds, of: view) },
-            pin: { [weak self] in self?.pinnedController.pin(image); self?.previewController.dismiss(id: id) },
-            dismiss: { [weak self] in self?.previewController.dismiss(id: id) }
-        ))
+        openEditor(session: session, image: result.image)
     }
 
     private func openEditor(id: UUID) {
@@ -303,7 +293,11 @@ final class AppCoordinator: NSObject {
             historyStore: historyStore,
             renderer: renderer,
             ocrService: ocrService,
-            exportService: exportService
+            exportService: exportService,
+            onDiscardCapture: { [weak self] id in
+                guard let self else { return }
+                try await self.discardCaptureFromEditor(id: id)
+            }
         )
         editorControllers[id] = editor
         editor.show()
@@ -385,6 +379,14 @@ final class AppCoordinator: NSObject {
             if let historyController { await refreshHistoryWindow(historyController) }
             await rebuildMenu()
         }
+    }
+
+    private func discardCaptureFromEditor(id: UUID) async throws {
+        try await historyStore.delete(id: id)
+        editorControllers.removeValue(forKey: id)
+        if latestEditorID == id { latestEditorID = nil }
+        if let historyController { await refreshHistoryWindow(historyController) }
+        await rebuildMenu()
     }
 
     private func refreshHistoryWindow(_ controller: HistoryWindowController) async {

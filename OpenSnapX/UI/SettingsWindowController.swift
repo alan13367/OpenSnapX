@@ -8,10 +8,9 @@ final class SettingsWindowController: NSWindowController {
     private let showOnboarding: () -> Void
     private let permissionService = ScreenPermissionService()
 
-    private let preview = NSPopUpButton()
     private let retention = NSPopUpButton()
-    private let postCapture = NSPopUpButton()
     private let cursor = NSButton(checkboxWithTitle: "Include the pointer in captures", target: nil, action: nil)
+    private let captureSound = NSButton(checkboxWithTitle: "Play a sound after capture", target: nil, action: nil)
     private let launch = NSButton(checkboxWithTitle: "Launch OpenSnapX at login", target: nil, action: nil)
     private var shortcutRecorders: [ShortcutAction: ShortcutRecorderControl] = [:]
     private var shortcutStatusLabels: [ShortcutAction: NSTextField] = [:]
@@ -99,47 +98,42 @@ final class SettingsWindowController: NSWindowController {
     }
 
     private func configureControls() {
-        preview.addItems(withTitles: ["3 seconds", "5 seconds", "8 seconds", "Never dismiss"])
-        preview.selectItem(at: [3.0, 5.0, 8.0, 0.0].firstIndex(of: settings.previewDuration) ?? 2)
         retention.addItems(withTitles: ["1 day", "7 days", "30 days", "Forever"])
         retention.selectItem(at: [1, 7, 30, 0].firstIndex(of: settings.historyRetentionDays) ?? 1)
-        postCapture.addItems(withTitles: ["Floating preview", "Copy", "Save", "Copy and preview"])
-        postCapture.selectItem(at: PostCaptureAction.allCases.firstIndex(of: settings.postCaptureAction) ?? 0)
         cursor.state = settings.includeCursor ? .on : .off
+        captureSound.state = settings.captureSoundEnabled ? .on : .off
         launch.state = settings.launchAtLogin ? .on : .off
 
-        for control in [preview, retention, postCapture, cursor] {
+        for control in [retention, cursor, captureSound] {
             control.target = self
             control.action = #selector(preferencesChanged)
         }
         launch.target = self
         launch.action = #selector(launchAtLoginChanged)
 
-        for popup in [preview, retention, postCapture] {
-            popup.controlSize = .regular
-            popup.widthAnchor.constraint(equalToConstant: 220).isActive = true
-        }
+        retention.controlSize = .regular
+        retention.widthAnchor.constraint(equalToConstant: 220).isActive = true
     }
 
     private func makeCaptureSection() -> NSView {
         let heading = sectionHeading(
             "Capture",
-            detail: "Choose what happens before and after each screenshot.",
+            detail: "Captured screenshots open directly in the editor.",
             symbol: "camera.viewfinder",
             color: .systemBlue
         )
 
         let options = verticalStack([
-            preferenceRow("Floating preview", detail: "How long the quick-action preview remains on screen", control: preview),
-            insetSeparator(),
-            preferenceRow("History retention", detail: "How long editable captures stay on this Mac", control: retention),
-            insetSeparator(),
-            preferenceRow("After capture", detail: "The action OpenSnapX performs immediately", control: postCapture)
+            preferenceRow("History retention", detail: "How long editable captures stay on this Mac", control: retention)
         ], spacing: 0)
 
         cursor.font = .systemFont(ofSize: 13)
+        captureSound.font = .systemFont(ofSize: 13)
         launch.font = .systemFont(ofSize: 13)
-        let checks = verticalStack([cursor, launch], spacing: 8)
+        let checkSpacer = NSView()
+        checkSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let captureChecks = horizontalStack([cursor, captureSound, checkSpacer], spacing: 24)
+        let checks = verticalStack([captureChecks, launch], spacing: 8)
         checks.edgeInsets = NSEdgeInsets(top: 4, left: 34, bottom: 0, right: 0)
 
         return verticalStack([heading, options, checks], spacing: 10)
@@ -308,10 +302,9 @@ final class SettingsWindowController: NSWindowController {
     }
 
     @objc private func preferencesChanged() {
-        settings.previewDuration = [3.0, 5.0, 8.0, 0.0][preview.indexOfSelectedItem]
         settings.historyRetentionDays = [1, 7, 30, 0][retention.indexOfSelectedItem]
-        settings.postCaptureAction = PostCaptureAction.allCases[postCapture.indexOfSelectedItem]
         settings.includeCursor = cursor.state == .on
+        settings.captureSoundEnabled = captureSound.state == .on
     }
 
     @objc private func launchAtLoginChanged() {

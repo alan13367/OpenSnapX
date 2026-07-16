@@ -6,10 +6,9 @@ final class SettingsStore {
 
     private enum Key {
         static let completedOnboarding = "completedOnboarding"
-        static let previewDuration = "previewDuration"
         static let historyRetentionDays = "historyRetentionDays"
-        static let postCaptureAction = "postCaptureAction"
         static let includeCursor = "includeCursor"
+        static let captureSoundEnabled = "captureSoundEnabled"
         static let defaultDelay = "defaultDelay"
         static let launchAtLogin = "launchAtLogin"
         static let exportFormat = "exportFormat"
@@ -20,10 +19,9 @@ final class SettingsStore {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         defaults.register(defaults: [
-            Key.previewDuration: 8.0,
             Key.historyRetentionDays: 7,
-            Key.postCaptureAction: PostCaptureAction.preview.rawValue,
             Key.includeCursor: false,
+            Key.captureSoundEnabled: true,
             Key.defaultDelay: 5,
             Key.launchAtLogin: false,
             Key.exportFormat: ExportFormat.png.rawValue
@@ -35,24 +33,19 @@ final class SettingsStore {
         set { defaults.set(newValue, forKey: Key.completedOnboarding) }
     }
 
-    var previewDuration: TimeInterval {
-        get { defaults.double(forKey: Key.previewDuration) }
-        set { defaults.set(newValue, forKey: Key.previewDuration) }
-    }
-
     var historyRetentionDays: Int {
         get { defaults.integer(forKey: Key.historyRetentionDays) }
         set { defaults.set(newValue, forKey: Key.historyRetentionDays) }
     }
 
-    var postCaptureAction: PostCaptureAction {
-        get { PostCaptureAction(rawValue: defaults.string(forKey: Key.postCaptureAction) ?? "") ?? .preview }
-        set { defaults.set(newValue.rawValue, forKey: Key.postCaptureAction) }
-    }
-
     var includeCursor: Bool {
         get { defaults.bool(forKey: Key.includeCursor) }
         set { defaults.set(newValue, forKey: Key.includeCursor) }
+    }
+
+    var captureSoundEnabled: Bool {
+        get { defaults.bool(forKey: Key.captureSoundEnabled) }
+        set { defaults.set(newValue, forKey: Key.captureSoundEnabled) }
     }
 
     var defaultDelay: Int {

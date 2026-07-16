@@ -1,4 +1,5 @@
 import AppKit
+import CoreImage
 
 enum EditorTool: String, CaseIterable {
     case select
@@ -34,6 +35,38 @@ enum EditorTool: String, CaseIterable {
     }
 
     var annotationKind: AnnotationKind? { AnnotationKind(rawValue: rawValue) }
+
+    var hint: String {
+        switch self {
+        case .select: "Select and resize edits"
+        case .arrow: "Draw an arrow"
+        case .line: "Draw a line"
+        case .rectangle: "Draw a rectangle"
+        case .ellipse: "Draw an ellipse"
+        case .text: "Add text"
+        case .pen: "Draw freehand"
+        case .highlighter: "Highlight an area"
+        case .counter: "Add a step number"
+        case .blur: "Blur an area"
+        case .pixelate: "Pixelate an area"
+        case .redact: "Redact an area"
+        case .crop: "Crop the image"
+        }
+    }
+
+    var usesStrokeWidth: Bool {
+        switch self {
+        case .arrow, .line, .rectangle, .ellipse, .pen, .highlighter: true
+        case .select, .text, .counter, .blur, .pixelate, .redact, .crop: false
+        }
+    }
+}
+
+private struct EditorEdits {
+    var annotations: [Annotation] = []
+    var ocrResults: [OCRResult] = []
+    var backdrop = BackdropConfiguration()
+    var isOCRSelectionActive = false
 }
 
 @MainActor
@@ -44,17 +77,22 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     private let renderer: any ImageRenderer
     private let ocrService: any OCRService
     private let exportService: ExportService
+    private let onDiscardCapture: (UUID) async throws -> Void
     private let canvas: EditorCanvasView
     private let scrollView = NSScrollView()
     private let colorWell = NSColorWell()
-    private let widthSlider = NSSlider(value: 4, minValue: 1, maxValue: 28, target: nil, action: nil)
+    private let widthSlider = NSSlider(value: 5, minValue: 1, maxValue: 28, target: nil, action: nil)
     private let colorLabel = NSTextField(labelWithString: "#FF0000")
-    private let widthLabel = NSTextField(labelWithString: "4 pt")
+    private let widthLabel = NSTextField(labelWithString: "5 pt")
     private let zoomLabel = NSTextField(labelWithString: "100%")
     private var toolButtons: [EditorTool: EditorChromeButton] = [:]
     private var moreToolsButton: EditorChromeButton?
     private var persistTask: Task<Void, Never>?
+    private var transientNoticeTask: Task<Void, Never>?
     private var keyMonitor: Any?
+    private var backdropPanelController: BackdropPanelController?
+    private var transientNotice: EditorTransientNoticeView?
+    private var isDiscardingCapture = false
     private weak var editorBar: NSView?
 
     init(
@@ -63,7 +101,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         historyStore: any HistoryStore,
         renderer: any ImageRenderer,
         ocrService: any OCRService,
-        exportService: ExportService
+        exportService: ExportService,
+        onDiscardCapture: @escaping (UUID) async throws -> Void
     ) {
         self.session = session
         sourceImage = image
@@ -71,6 +110,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         self.renderer = renderer
         self.ocrService = ocrService
         self.exportService = exportService
+        self.onDiscardCapture = onDiscardCapture
         canvas = EditorCanvasView(image: image, annotations: session.annotations, ocrResults: session.ocrResults)
         let window = NSWindow(
             contentRect: CGRect(x: 0, y: 0, width: 1080, height: 720),
@@ -87,7 +127,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         window.delegate = self
         configureUI()
         canvas.onAnnotationsChanged = { [weak self] annotations in self?.annotationsChanged(annotations) }
-        canvas.onOCRSelection = { [weak self] result in self?.copyOCRResult(result) }
+        canvas.onOCRSelection = { [weak self] results in self?.copyOCRResults(results) }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, self.window?.isKeyWindow == true else { return event }
             return self.handleLocalKeyDown(event)
@@ -123,11 +163,14 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
             self.keyMonitor = nil
         }
         persistTask?.cancel()
+        transientNoticeTask?.cancel()
+        transientNotice?.removeFromSuperview()
         NotificationCenter.default.removeObserver(
             self,
             name: NSView.boundsDidChangeNotification,
             object: scrollView.contentView
         )
+        guard !isDiscardingCapture else { return }
         let session = self.session
         Task { try? await historyStore.save(session) }
     }
@@ -224,32 +267,59 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
 
     private func makeExportStrip() -> NSView {
         let stack = chromeStack(spacing: 4)
-        stack.addArrangedSubview(chromeButton(symbol: "doc.on.doc", label: "Copy") { [weak self] in self?.copyRendered() })
-        stack.addArrangedSubview(chromeButton(symbol: "square.and.arrow.down", label: "Save") { [weak self] in self?.saveRendered() })
+        stack.addArrangedSubview(chromeButton(
+            symbol: "doc.on.doc",
+            label: "Copy",
+            hint: "Copy image"
+        ) { [weak self] in self?.copyRendered() })
+        stack.addArrangedSubview(chromeButton(
+            symbol: "square.and.arrow.down",
+            label: "Save",
+            hint: "Save image"
+        ) { [weak self] in self?.saveRendered() })
         return stack
     }
 
     private func makeHistoryStrip() -> NSView {
         let stack = chromeStack(spacing: 4)
-        stack.addArrangedSubview(chromeButton(symbol: "arrow.uturn.backward", label: "Undo") { [weak self] in self?.undo() })
-        stack.addArrangedSubview(chromeButton(symbol: "arrow.uturn.forward", label: "Redo") { [weak self] in self?.redo() })
+        stack.addArrangedSubview(chromeButton(
+            symbol: "arrow.uturn.backward",
+            label: "Undo",
+            hint: "Undo last edit"
+        ) { [weak self] in self?.undo() })
+        stack.addArrangedSubview(chromeButton(
+            symbol: "arrow.uturn.forward",
+            label: "Redo",
+            hint: "Redo last edit"
+        ) { [weak self] in self?.redo() })
+        stack.addArrangedSubview(chromeButton(
+            symbol: "eraser",
+            label: "Clear all edits",
+            hint: "Clear all edits • Undoable"
+        ) { [weak self] in self?.clearAllEdits() })
+        stack.addArrangedSubview(chromeSeparator())
+        stack.addArrangedSubview(chromeButton(
+            symbol: "trash",
+            label: "Discard capture",
+            hint: "Discard capture and delete from history"
+        ) { [weak self] in self?.confirmDiscardCapture() })
         return stack
     }
 
     private func makeToolStrip() -> NSView {
-        let stack = chromeStack(spacing: 2)
-        let primaryTools: [EditorTool] = [.select, .arrow, .line, .text, .counter, .rectangle, .ellipse, .pen, .highlighter]
-        for tool in primaryTools {
-            let button = EditorChromeButton(
-                symbol: tool.symbol,
-                label: tool.rawValue.capitalized,
-                showsSelection: true
-            ) { [weak self] in self?.selectTool(tool) }
-            button.toolTip = tool.rawValue.capitalized
-            button.setSelected(tool == canvas.tool)
-            toolButtons[tool] = button
-            stack.addArrangedSubview(button)
+        let stack = chromeStack(spacing: 4)
+        let groups: [(name: String, tools: [EditorTool])] = [
+            ("Selection", [.select]),
+            ("Arrows and lines", [.arrow, .line]),
+            ("Shapes", [.rectangle, .ellipse]),
+            ("Freehand", [.pen, .highlighter]),
+            ("Labels", [.text, .counter])
+        ]
+        for (index, group) in groups.enumerated() {
+            if index > 0 { stack.addArrangedSubview(chromeSeparator()) }
+            stack.addArrangedSubview(makeToolGroup(group.tools, accessibilityLabel: group.name))
         }
+        stack.addArrangedSubview(chromeSeparator())
 
         let more = EditorChromeButton(
             symbol: "ellipsis",
@@ -259,9 +329,30 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
             guard let self, let button = self.moreToolsButton else { return }
             self.showMoreTools(button)
         }
-        more.toolTip = "More tools and actions"
+        let moreHint = "More tools"
+        more.toolTip = moreHint
+        more.setAccessibilityHelp(moreHint)
         moreToolsButton = more
         stack.addArrangedSubview(more)
+        return stack
+    }
+
+    private func makeToolGroup(_ tools: [EditorTool], accessibilityLabel: String) -> NSView {
+        let stack = chromeStack(spacing: 2)
+        stack.setAccessibilityLabel(accessibilityLabel)
+        for tool in tools {
+            let button = EditorChromeButton(
+                symbol: tool.symbol,
+                label: tool.rawValue.capitalized,
+                showsSelection: true
+            ) { [weak self] in self?.selectTool(tool) }
+            let hint = toolHint(for: tool)
+            button.toolTip = hint
+            button.setAccessibilityHelp(hint)
+            button.setSelected(tool == canvas.tool)
+            toolButtons[tool] = button
+            stack.addArrangedSubview(button)
+        }
         return stack
     }
 
@@ -306,8 +397,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         colorLabel.font = .monospacedSystemFont(ofSize: 13, weight: .medium)
         colorLabel.textColor = .labelColor
         colorLabel.isSelectable = false
-        colorLabel.toolTip = "Press Tab to copy"
-        let caption = NSTextField(labelWithString: "Tab to copy")
+        colorLabel.toolTip = "Copy color hex"
+        let caption = NSTextField(labelWithString: "Color")
         caption.font = .systemFont(ofSize: 11)
         caption.textColor = .secondaryLabelColor
 
@@ -332,9 +423,10 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         widthLabel.font = .systemFont(ofSize: 13, weight: .medium)
         widthLabel.textColor = .labelColor
         widthLabel.alignment = .left
-        widthLabel.toolTip = "Click to adjust stroke width"
+        let widthHint = "Stroke width"
+        widthLabel.toolTip = widthHint
 
-        let caption = NSTextField(labelWithString: "Stroke")
+        let caption = NSTextField(labelWithString: "Stroke width")
         caption.font = .systemFont(ofSize: 11)
         caption.textColor = .secondaryLabelColor
 
@@ -345,6 +437,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         stack.setAccessibilityElement(true)
         stack.setAccessibilityRole(.button)
         stack.setAccessibilityLabel("Stroke width")
+        stack.setAccessibilityHelp(widthHint)
+        stack.toolTip = widthHint
 
         let click = NSClickGestureRecognizer(target: self, action: #selector(showStrokePopover(_:)))
         stack.addGestureRecognizer(click)
@@ -357,6 +451,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         widthSlider.target = self
         widthSlider.action = #selector(styleChanged)
         widthSlider.controlSize = .small
+        widthSlider.toolTip = "Stroke width: 1–28 pt"
+        widthSlider.setAccessibilityLabel("Stroke width in points")
         widthSlider.frame = CGRect(x: 0, y: 0, width: 140, height: 24)
 
         let container = NSView(frame: CGRect(x: 0, y: 0, width: 168, height: 44))
@@ -413,9 +509,15 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         return stack
     }
 
-    private func chromeButton(symbol: String, label: String, action: @escaping () -> Void) -> EditorChromeButton {
+    private func chromeButton(
+        symbol: String,
+        label: String,
+        hint: String,
+        action: @escaping () -> Void
+    ) -> EditorChromeButton {
         let button = EditorChromeButton(symbol: symbol, label: label, showsSelection: false, action: action)
-        button.toolTip = label
+        button.toolTip = hint
+        button.setAccessibilityHelp(hint)
         return button
     }
 
@@ -455,19 +557,28 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
             item.representedObject = tool.rawValue
             item.image = NSImage(systemSymbolName: tool.symbol, accessibilityDescription: item.title)
             item.state = canvas.tool == tool ? .on : .off
-            if tool == .redact {
-                item.toolTip = "Redact securely in exports; the editable source stays in local history"
-            }
+            item.toolTip = toolHint(for: tool)
             menu.addItem(item)
         }
         menu.addItem(.separator())
-        let recognize = NSMenuItem(title: "Recognize Text", action: #selector(recognizeText), keyEquivalent: "")
+        let recognizeTitle: String
+        if canvas.isOCRSelectionActive {
+            recognizeTitle = "Hide Text Selection"
+        } else if canvas.ocrResults.isEmpty {
+            recognizeTitle = "Recognize Text"
+        } else {
+            recognizeTitle = "Select Recognized Text"
+        }
+        let recognize = NSMenuItem(title: recognizeTitle, action: #selector(toggleRecognizedText), keyEquivalent: "")
         recognize.target = self
         recognize.image = NSImage(systemSymbolName: "text.viewfinder", accessibilityDescription: recognize.title)
+        recognize.state = canvas.isOCRSelectionActive ? .on : .off
+        recognize.toolTip = "Select detected text"
         menu.addItem(recognize)
         let backdrop = NSMenuItem(title: "Backdrop…", action: #selector(showBackdrop), keyEquivalent: "")
         backdrop.target = self
         backdrop.image = NSImage(systemSymbolName: "sparkles.rectangle.stack", accessibilityDescription: backdrop.title)
+        backdrop.toolTip = "Add an export backdrop"
         menu.addItem(backdrop)
         menu.popUp(positioning: nil, at: CGPoint(x: 0, y: sender.bounds.maxY + 4), in: sender)
     }
@@ -485,7 +596,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     @objc private func copyColorHex() {
         let hex = hexString(for: colorWell.color)
         exportService.copyText(hex)
-        showTransientMessage("Copied \(hex)")
+        showTransientMessage("Copied \(hex)", style: .success)
     }
 
     private func handleLocalKeyDown(_ event: NSEvent) -> NSEvent? {
@@ -506,6 +617,17 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     private func updateStyleLabels() {
         colorLabel.stringValue = hexString(for: colorWell.color)
         widthLabel.stringValue = "\(Int(widthSlider.doubleValue.rounded())) pt"
+        for (tool, button) in toolButtons {
+            let hint = toolHint(for: tool)
+            button.toolTip = hint
+            button.setAccessibilityHelp(hint)
+        }
+    }
+
+    private func toolHint(for tool: EditorTool) -> String {
+        guard tool.usesStrokeWidth else { return tool.hint }
+        let width = Int(widthSlider.doubleValue.rounded())
+        return "\(tool.hint) • Stroke: \(width) pt"
     }
 
     private func updateZoomLabel() {
@@ -553,18 +675,104 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     @objc private func undo() { window?.undoManager?.undo() }
     @objc private func redo() { window?.undoManager?.redo() }
 
-    @objc private func recognizeText() {
+    private func confirmDiscardCapture() {
+        guard let window, !isDiscardingCapture else { return }
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Discard Capture?"
+        alert.informativeText = "This permanently removes the capture from history."
+        alert.addButton(withTitle: "Discard")
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            self?.discardCapture()
+        }
+    }
+
+    private func discardCapture() {
+        guard !isDiscardingCapture else { return }
+        isDiscardingCapture = true
+        persistTask?.cancel()
+        Task {
+            do {
+                try await onDiscardCapture(session.id)
+                window?.close()
+            } catch {
+                isDiscardingCapture = false
+                present(error)
+            }
+        }
+    }
+
+    private func clearAllEdits() {
+        let current = EditorEdits(
+            annotations: session.annotations,
+            ocrResults: session.ocrResults,
+            backdrop: session.manifest.backdrop,
+            isOCRSelectionActive: canvas.isOCRSelectionActive
+        )
+        guard !current.annotations.isEmpty
+                || !current.ocrResults.isEmpty
+                || current.backdrop != BackdropConfiguration() else {
+            showTransientMessage("Nothing to clear", style: .information)
+            return
+        }
+        window?.undoManager?.registerUndo(withTarget: self) { target in
+            target.replaceEdits(current)
+        }
+        window?.undoManager?.setActionName("Clear All Edits")
+        applyEdits(EditorEdits())
+        showTransientMessage("Edits cleared — Undo restores them", style: .success)
+    }
+
+    private func replaceEdits(_ edits: EditorEdits) {
+        let current = EditorEdits(
+            annotations: session.annotations,
+            ocrResults: session.ocrResults,
+            backdrop: session.manifest.backdrop,
+            isOCRSelectionActive: canvas.isOCRSelectionActive
+        )
+        window?.undoManager?.registerUndo(withTarget: self) { target in
+            target.replaceEdits(current)
+        }
+        window?.undoManager?.setActionName("Clear All Edits")
+        applyEdits(edits)
+    }
+
+    private func applyEdits(_ edits: EditorEdits) {
+        session.annotations = edits.annotations
+        session.ocrResults = edits.ocrResults
+        session.manifest.backdrop = edits.backdrop
+        canvas.replaceEdits(
+            annotations: edits.annotations,
+            ocrResults: edits.ocrResults,
+            isOCRSelectionActive: edits.isOCRSelectionActive
+        )
+        schedulePersist()
+    }
+
+    @objc private func toggleRecognizedText() {
+        if canvas.isOCRSelectionActive {
+            canvas.isOCRSelectionActive = false
+            showTransientMessage("Text selection hidden", style: .information)
+            return
+        }
+        if !canvas.ocrResults.isEmpty {
+            canvas.isOCRSelectionActive = true
+            showTransientMessage("Click text or drag across regions to copy", style: .tip)
+            return
+        }
         Task {
             do {
                 let results = try await ocrService.recognize(ImagePayload(image: sourceImage))
                 session.ocrResults = results
                 canvas.ocrResults = results
+                canvas.isOCRSelectionActive = !results.isEmpty
                 schedulePersist()
                 if !results.isEmpty {
-                    exportService.copyText(results.map(\.text).joined(separator: "\n"))
-                    showTransientMessage("Recognized \(results.count) text regions and copied them.")
+                    showTransientMessage("Text ready — click or drag across regions to copy", style: .success)
                 } else {
-                    showTransientMessage("No text was recognized.")
+                    showTransientMessage("No text recognized", style: .information)
                 }
             } catch { present(error) }
         }
@@ -572,11 +780,22 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
 
     @objc private func showBackdrop() {
         guard let window else { return }
-        let controller = BackdropPanelController(configuration: session.manifest.backdrop) { [weak self] configuration in
+        if let backdropPanelController {
+            backdropPanelController.window?.makeKeyAndOrderFront(nil)
+            return
+        }
+        let controller = BackdropPanelController(
+            configuration: session.manifest.backdrop,
+            image: sourceImage
+        ) { [weak self] configuration in
             self?.session.manifest.backdrop = configuration
             self?.schedulePersist()
         }
-        window.beginSheet(controller.window!)
+        backdropPanelController = controller
+        guard let panel = controller.window else { return }
+        window.beginSheet(panel) { [weak self] _ in
+            self?.backdropPanelController = nil
+        }
     }
 
     @objc private func copyRendered() {
@@ -598,9 +817,15 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         try renderer.render(source: ImagePayload(image: sourceImage), session: session, options: ExportOptions()).image
     }
 
-    private func copyOCRResult(_ result: OCRResult) {
-        exportService.copyText(result.text)
-        showTransientMessage("Copied “\(result.text)”")
+    private func copyOCRResults(_ results: [OCRResult]) {
+        guard !results.isEmpty else { return }
+        let text = results.map(\.text).joined(separator: "\n")
+        exportService.copyText(text)
+        if results.count == 1 {
+            showTransientMessage("Text copied", style: .success)
+        } else {
+            showTransientMessage("\(results.count) text regions copied", style: .success)
+        }
     }
 
     private func schedulePersist() {
@@ -613,31 +838,142 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
-    private func showTransientMessage(_ text: String) {
+    private func showTransientMessage(_ text: String, style: EditorNoticeStyle) {
         guard let content = window?.contentView else { return }
-        let label = NSTextField(labelWithString: text)
-        label.wantsLayer = true
-        label.layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.92).cgColor
-        label.layer?.cornerRadius = 8
-        label.textColor = .white
-        label.alignment = .center
-        label.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(label)
+
+        transientNoticeTask?.cancel()
+        transientNotice?.removeFromSuperview()
+
+        let notice = EditorTransientNoticeView(text: text, style: style)
+        notice.translatesAutoresizingMaskIntoConstraints = false
+        notice.alphaValue = 0
+        content.addSubview(notice)
+        transientNotice = notice
+
+        let topAnchor = editorBar?.bottomAnchor ?? content.topAnchor
         NSLayoutConstraint.activate([
-            label.centerXAnchor.constraint(equalTo: content.centerXAnchor),
-            label.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -24),
-            label.widthAnchor.constraint(lessThanOrEqualToConstant: 560),
-            label.heightAnchor.constraint(equalToConstant: 34)
+            notice.centerXAnchor.constraint(equalTo: content.centerXAnchor),
+            notice.topAnchor.constraint(equalTo: topAnchor, constant: 12),
+            notice.leadingAnchor.constraint(greaterThanOrEqualTo: content.leadingAnchor, constant: 20),
+            notice.trailingAnchor.constraint(lessThanOrEqualTo: content.trailingAnchor, constant: -20),
+            notice.widthAnchor.constraint(lessThanOrEqualToConstant: 500)
         ])
-        Task {
-            try? await Task.sleep(for: .seconds(2))
-            label.removeFromSuperview()
+        content.layoutSubtreeIfNeeded()
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.16
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            notice.animator().alphaValue = 1
+        }
+
+        transientNoticeTask = Task { [weak self, weak notice] in
+            try? await Task.sleep(for: .seconds(2.4))
+            guard !Task.isCancelled, let self, let notice else { return }
+            self.dismissTransientMessage(notice)
+        }
+    }
+
+    private func dismissTransientMessage(_ notice: EditorTransientNoticeView) {
+        guard transientNotice === notice else { return }
+        transientNotice = nil
+        transientNoticeTask = nil
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.18
+            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            notice.animator().alphaValue = 0
+        } completionHandler: {
+            notice.removeFromSuperview()
         }
     }
 
     private func present(_ error: Error) {
         let alert = NSAlert(error: error)
         if let window { alert.beginSheetModal(for: window) }
+    }
+}
+
+private enum EditorNoticeStyle {
+    case success
+    case information
+    case tip
+
+    var symbolName: String {
+        switch self {
+        case .success: "checkmark.circle.fill"
+        case .information: "info.circle.fill"
+        case .tip: "hand.point.up.left.fill"
+        }
+    }
+
+    var tintColor: NSColor {
+        switch self {
+        case .success: .systemGreen
+        case .information, .tip: .controlAccentColor
+        }
+    }
+}
+
+@MainActor
+private final class EditorTransientNoticeView: NSVisualEffectView {
+    init(text: String, style: EditorNoticeStyle) {
+        super.init(frame: .zero)
+        material = .popover
+        blendingMode = .withinWindow
+        state = .followsWindowActiveState
+        wantsLayer = true
+        layer?.cornerRadius = 11
+        layer?.masksToBounds = true
+
+        let symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
+        let icon = NSImageView()
+        icon.image = NSImage(
+            systemSymbolName: style.symbolName,
+            accessibilityDescription: nil
+        )?.withSymbolConfiguration(symbolConfiguration)
+        icon.contentTintColor = style.tintColor
+        icon.imageScaling = .scaleProportionallyDown
+        icon.translatesAutoresizingMaskIntoConstraints = false
+
+        let label = NSTextField(wrappingLabelWithString: text)
+        label.font = .systemFont(ofSize: 13, weight: .medium)
+        label.textColor = .labelColor
+        label.maximumNumberOfLines = 2
+        label.lineBreakMode = .byTruncatingTail
+
+        let stack = NSStackView(views: [icon, label])
+        stack.orientation = .horizontal
+        stack.alignment = .centerY
+        stack.spacing = 9
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            icon.widthAnchor.constraint(equalToConstant: 17),
+            icon.heightAnchor.constraint(equalToConstant: 17),
+            label.widthAnchor.constraint(lessThanOrEqualToConstant: 440),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 13),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -15),
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 10),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10),
+            heightAnchor.constraint(greaterThanOrEqualToConstant: 40)
+        ])
+
+        setAccessibilityElement(true)
+        setAccessibilityRole(.staticText)
+        setAccessibilityLabel(text)
+        updateBorderColor()
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateBorderColor()
+    }
+
+    private func updateBorderColor() {
+        layer?.borderWidth = 0.5
+        layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.55).cgColor
     }
 }
 
@@ -651,6 +987,7 @@ private final class EditorChromeButton: NSButton {
     private let closure: () -> Void
     private let showsSelection: Bool
     private var isHovered = false
+    private var hoverTrackingArea: NSTrackingArea?
 
     init(symbol: String, label: String, showsSelection: Bool, action: @escaping () -> Void) {
         self.showsSelection = showsSelection
@@ -664,6 +1001,7 @@ private final class EditorChromeButton: NSButton {
         contentTintColor = .labelColor
         target = self
         self.action = #selector(invoke)
+        toolTip = label
         setAccessibilityLabel(label)
         widthAnchor.constraint(equalToConstant: 30).isActive = true
         heightAnchor.constraint(equalToConstant: 26).isActive = true
@@ -672,10 +1010,14 @@ private final class EditorChromeButton: NSButton {
     required init?(coder: NSCoder) { nil }
 
     override func updateTrackingAreas() {
+        if let hoverTrackingArea {
+            removeTrackingArea(hoverTrackingArea)
+        }
         super.updateTrackingAreas()
-        trackingAreas.forEach(removeTrackingArea)
         let options: NSTrackingArea.Options = [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect]
-        addTrackingArea(NSTrackingArea(rect: .zero, options: options, owner: self, userInfo: nil))
+        let trackingArea = NSTrackingArea(rect: .zero, options: options, owner: self, userInfo: nil)
+        addTrackingArea(trackingArea)
+        hoverTrackingArea = trackingArea
     }
 
     override func mouseEntered(with event: NSEvent) {
@@ -724,21 +1066,89 @@ private final class CenteredClipView: NSClipView {
     }
 }
 
+struct AnnotationCanvasGeometry {
+    static func movedPoints(_ points: [CanvasPoint], by delta: CGPoint) -> [CanvasPoint] {
+        points.map { CanvasPoint(CGPoint(x: $0.x + delta.x, y: $0.y + delta.y)) }
+    }
+
+    static func resizedPoints(_ points: [CanvasPoint], from oldFrame: CGRect, to newFrame: CGRect) -> [CanvasPoint] {
+        points.map { point in
+            let xFraction = oldFrame.width == 0 ? 0 : (point.x - oldFrame.minX) / oldFrame.width
+            let yFraction = oldFrame.height == 0 ? 0 : (point.y - oldFrame.minY) / oldFrame.height
+            return CanvasPoint(CGPoint(
+                x: newFrame.minX + xFraction * newFrame.width,
+                y: newFrame.minY + yFraction * newFrame.height
+            ))
+        }
+    }
+
+    static func frame(containing points: [CanvasPoint], fallback: CGRect) -> CGRect {
+        guard let first = points.first else { return fallback }
+        return points.dropFirst().reduce(CGRect(x: first.x, y: first.y, width: 0, height: 0)) { frame, point in
+            frame.union(CGRect(x: point.x, y: point.y, width: 0, height: 0))
+        }
+    }
+
+    static func distance(from point: CGPoint, toSegmentFrom start: CGPoint, to end: CGPoint) -> CGFloat {
+        let dx = end.x - start.x
+        let dy = end.y - start.y
+        let lengthSquared = dx * dx + dy * dy
+        guard lengthSquared > 0 else { return hypot(point.x - start.x, point.y - start.y) }
+        let projection = max(0, min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared))
+        let closest = CGPoint(x: start.x + projection * dx, y: start.y + projection * dy)
+        return hypot(point.x - closest.x, point.y - closest.y)
+    }
+}
+
 @MainActor
 final class EditorCanvasView: NSView {
     var tool: EditorTool = .select
     var style = AnnotationStyle()
-    var annotations: [Annotation] { didSet { needsDisplay = true } }
-    var ocrResults: [OCRResult] { didSet { needsDisplay = true } }
+    var annotations: [Annotation] {
+        didSet {
+            if let selectedID, !annotations.contains(where: { $0.id == selectedID }) {
+                self.selectedID = nil
+            }
+            needsDisplay = true
+        }
+    }
+    var ocrResults: [OCRResult] {
+        didSet {
+            selectedOCRIDs.removeAll()
+            needsDisplay = true
+        }
+    }
+    var isOCRSelectionActive = false {
+        didSet {
+            selectedOCRIDs.removeAll()
+            ocrSelectionRect = nil
+            needsDisplay = true
+        }
+    }
     var onAnnotationsChanged: (([Annotation]) -> Void)?
-    var onOCRSelection: ((OCRResult) -> Void)?
+    var onOCRSelection: (([OCRResult]) -> Void)?
+
+    private enum DragOperation {
+        case move
+        case resizeFrame
+        case startPoint
+        case endPoint
+    }
 
     private let image: CGImage
+    private let effectContext = CIContext(options: [.cacheIntermediates: false])
+    private lazy var blurredPreviewImage = makeEffectPreview(kind: .blur)
+    private lazy var pixelatedPreviewImage = makeEffectPreview(kind: .pixelate)
     private var draft: Annotation?
     private var selectedID: UUID?
     private var dragStart: CGPoint?
     private var originalFrame: CGRect?
-    private var isResizing = false
+    private var originalPoints: [CanvasPoint] = []
+    private var dragOperation: DragOperation?
+    private var didModifySelection = false
+    private var ocrDragStart: CGPoint?
+    private var ocrSelectionRect: CGRect?
+    private var selectedOCRIDs = Set<UUID>()
     private var copiedAnnotation: Annotation?
     private var counter = 1
 
@@ -750,6 +1160,7 @@ final class EditorCanvasView: NSView {
         self.annotations = annotations
         self.ocrResults = ocrResults
         super.init(frame: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        counter = (annotations.compactMap(\.counter).max() ?? 0) + 1
         wantsLayer = true
         setAccessibilityRole(.image)
         setAccessibilityLabel("Screenshot annotation canvas")
@@ -757,36 +1168,62 @@ final class EditorCanvasView: NSView {
 
     required init?(coder: NSCoder) { nil }
 
+    func replaceEdits(annotations: [Annotation], ocrResults: [OCRResult], isOCRSelectionActive: Bool) {
+        draft = nil
+        selectedID = nil
+        dragStart = nil
+        originalFrame = nil
+        originalPoints = []
+        dragOperation = nil
+        copiedAnnotation = nil
+        self.annotations = annotations
+        self.ocrResults = ocrResults
+        self.isOCRSelectionActive = isOCRSelectionActive && !ocrResults.isEmpty
+        counter = (annotations.compactMap(\.counter).max() ?? 0) + 1
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        guard let context = NSGraphicsContext.current?.cgContext else { return }
-        context.saveGState()
-        context.translateBy(x: 0, y: bounds.height)
-        context.scaleBy(x: 1, y: -1)
-        context.draw(image, in: bounds)
-        context.restoreGState()
-        for annotation in annotations + (draft.map { [$0] } ?? []) { draw(annotation) }
+        drawCanvasImage(image)
+        let visibleAnnotations = annotations + (draft.map { [$0] } ?? [])
+        for annotation in visibleAnnotations where annotation.kind == .blur || annotation.kind == .pixelate {
+            draw(annotation)
+        }
+        for annotation in visibleAnnotations where annotation.kind != .blur && annotation.kind != .pixelate {
+            draw(annotation)
+        }
         drawOCR()
     }
 
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
-        let point = convert(event.locationInWindow, from: nil)
-        if let result = ocrResult(at: point) {
-            onOCRSelection?(result)
+        let point = clamped(convert(event.locationInWindow, from: nil))
+        if isOCRSelectionActive {
+            ocrDragStart = point
+            ocrSelectionRect = CGRect(origin: point, size: .zero)
+            selectedOCRIDs = Set(ocrResult(at: point).map { [$0.id] } ?? [])
+            needsDisplay = true
             return
         }
+
         dragStart = point
+        didModifySelection = false
         if tool == .select {
             if let selectedID,
                let selected = annotations.first(where: { $0.id == selectedID }),
-               resizeHandle(for: selected.frame.cgRect).contains(point) {
-                isResizing = true
+               let operation = handleOperation(for: selected, at: point) {
+                dragOperation = operation
             } else {
-                selectedID = annotations.last(where: { $0.frame.cgRect.insetBy(dx: -5, dy: -5).contains(point) })?.id
-                isResizing = false
+                selectedID = annotation(at: point)?.id
+                dragOperation = selectedID == nil ? nil : .move
             }
-            originalFrame = selectedID.flatMap { id in annotations.first(where: { $0.id == id })?.frame.cgRect }
+            if let selectedID, let selected = annotations.first(where: { $0.id == selectedID }) {
+                originalFrame = selected.frame.cgRect
+                originalPoints = selected.points
+            } else {
+                originalFrame = nil
+                originalPoints = []
+            }
         } else if let kind = tool.annotationKind {
             draft = Annotation(kind: kind, frame: CanvasRect(CGRect(origin: point, size: .zero)), points: [CanvasPoint(point)], style: style)
             if kind == .counter { draft?.counter = counter }
@@ -796,24 +1233,50 @@ final class EditorCanvasView: NSView {
     }
 
     override func mouseDragged(with event: NSEvent) {
-        guard let start = dragStart else { return }
         let point = clamped(convert(event.locationInWindow, from: nil))
-        if tool == .select, let id = selectedID, let originalFrame {
-            if let index = annotations.firstIndex(where: { $0.id == id }) {
-                if isResizing {
-                    annotations[index].frame = CanvasRect(CGRect(
-                        x: originalFrame.minX,
-                        y: originalFrame.minY,
-                        width: max(4, originalFrame.width + point.x - start.x),
-                        height: max(4, originalFrame.height + point.y - start.y)
-                    ))
+        if isOCRSelectionActive, let start = ocrDragStart {
+            let selection = rect(from: start, to: point)
+            ocrSelectionRect = selection
+            selectedOCRIDs = Set(ocrResults.filter { ocrFrame(for: $0).intersects(selection) }.map(\.id))
+            needsDisplay = true
+            return
+        }
+
+        guard let start = dragStart else { return }
+        if tool == .select,
+           let id = selectedID,
+           let index = annotations.firstIndex(where: { $0.id == id }),
+           let originalFrame,
+           let dragOperation {
+            switch dragOperation {
+            case .move:
+                let delta = CGPoint(x: point.x - start.x, y: point.y - start.y)
+                annotations[index].frame = CanvasRect(originalFrame.offsetBy(dx: delta.x, dy: delta.y))
+                annotations[index].points = AnnotationCanvasGeometry.movedPoints(originalPoints, by: delta)
+            case .resizeFrame:
+                let newFrame = CGRect(
+                    x: originalFrame.minX,
+                    y: originalFrame.minY,
+                    width: max(4, originalFrame.width + point.x - start.x),
+                    height: max(4, originalFrame.height + point.y - start.y)
+                )
+                annotations[index].frame = CanvasRect(newFrame)
+                annotations[index].points = AnnotationCanvasGeometry.resizedPoints(originalPoints, from: originalFrame, to: newFrame)
+            case .startPoint, .endPoint:
+                var points = originalPoints
+                guard !points.isEmpty else { break }
+                let pointIndex = if case .startPoint = dragOperation {
+                    points.startIndex
                 } else {
-                    let delta = CGPoint(x: point.x - start.x, y: point.y - start.y)
-                    annotations[index].frame = CanvasRect(originalFrame.offsetBy(dx: delta.x, dy: delta.y))
+                    points.index(before: points.endIndex)
                 }
+                points[pointIndex] = CanvasPoint(point)
+                annotations[index].points = points
+                annotations[index].frame = CanvasRect(AnnotationCanvasGeometry.frame(containing: points, fallback: originalFrame))
             }
+            didModifySelection = true
         } else if var draft {
-            let frame = CGRect(x: min(start.x, point.x), y: min(start.y, point.y), width: abs(point.x - start.x), height: abs(point.y - start.y))
+            let frame = rect(from: start, to: point)
             draft.frame = CanvasRect(frame)
             if draft.kind == .pen || draft.kind == .highlighter {
                 draft.points.append(CanvasPoint(point))
@@ -826,9 +1289,30 @@ final class EditorCanvasView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
-        defer { dragStart = nil; originalFrame = nil; isResizing = false }
+        if isOCRSelectionActive {
+            if let start = ocrDragStart {
+                let point = clamped(convert(event.locationInWindow, from: nil))
+                if hypot(point.x - start.x, point.y - start.y) < 3, let result = ocrResult(at: point) {
+                    selectedOCRIDs = [result.id]
+                }
+                let selected = ocrResults.filter { selectedOCRIDs.contains($0.id) }
+                onOCRSelection?(selected)
+            }
+            ocrDragStart = nil
+            ocrSelectionRect = nil
+            needsDisplay = true
+            return
+        }
+
+        defer {
+            dragStart = nil
+            originalFrame = nil
+            originalPoints = []
+            dragOperation = nil
+            didModifySelection = false
+        }
         if tool == .select {
-            onAnnotationsChanged?(annotations)
+            if didModifySelection { onAnnotationsChanged?(annotations) }
             return
         }
         guard var draft else { return }
@@ -890,7 +1374,13 @@ final class EditorCanvasView: NSView {
             let rectPath = NSBezierPath(rect: frame)
             if annotation.kind == .redact { (annotation.style.fillColor?.nsColor ?? .black).setFill(); rectPath.fill() }
             else if annotation.kind == .blur || annotation.kind == .pixelate {
-                NSColor.systemGray.withAlphaComponent(0.34).setFill(); rectPath.fill(); rectPath.stroke()
+                let preview = annotation.kind == .blur ? blurredPreviewImage : pixelatedPreviewImage
+                if let preview { drawCanvasImage(preview, clippedTo: frame) }
+                NSColor.controlAccentColor.withAlphaComponent(0.85).setStroke()
+                let dash: [CGFloat] = [6, 3]
+                rectPath.lineWidth = 1.5
+                rectPath.setLineDash(dash, count: dash.count, phase: 0)
+                rectPath.stroke()
             } else if annotation.kind == .crop {
                 let dash: [CGFloat] = [8, 4]; rectPath.setLineDash(dash, count: 2, phase: 0); rectPath.stroke()
             } else { if annotation.style.fillColor != nil { rectPath.fill() }; rectPath.stroke() }
@@ -916,17 +1406,26 @@ final class EditorCanvasView: NSView {
         }
         if annotation.id == selectedID {
             NSColor.controlAccentColor.setStroke()
-            let selectionPath = NSBezierPath(rect: frame.insetBy(dx: -4, dy: -4)); selectionPath.lineWidth = 1; selectionPath.stroke()
             NSColor.white.setFill()
-            NSColor.controlAccentColor.setStroke()
-            let handle = NSBezierPath(roundedRect: resizeHandle(for: frame), xRadius: 2, yRadius: 2)
-            handle.fill(); handle.stroke()
+            if annotation.kind == .line || annotation.kind == .arrow,
+               let start = annotation.points.first?.cgPoint,
+               let end = annotation.points.last?.cgPoint {
+                drawSelectionHandle(at: start)
+                drawSelectionHandle(at: end)
+            } else {
+                let selectionPath = NSBezierPath(rect: frame.insetBy(dx: -4, dy: -4))
+                selectionPath.lineWidth = 1
+                selectionPath.stroke()
+                let handle = NSBezierPath(roundedRect: resizeHandle(for: frame), xRadius: 2, yRadius: 2)
+                handle.fill()
+                handle.stroke()
+            }
         }
     }
 
     private func drawArrow(from start: CGPoint, to end: CGPoint, style: AnnotationStyle) {
         let angle = atan2(end.y - start.y, end.x - start.x)
-        let length = max(10, style.lineWidth * 3.5)
+        let length = max(14, style.lineWidth * 4)
         let spread = CGFloat.pi / 7
         let head = NSBezierPath()
         head.lineWidth = style.lineWidth
@@ -938,22 +1437,114 @@ final class EditorCanvasView: NSView {
     }
 
     private func drawOCR() {
-        guard !ocrResults.isEmpty else { return }
-        NSColor.systemCyan.withAlphaComponent(0.85).setStroke()
+        guard isOCRSelectionActive, !ocrResults.isEmpty else { return }
         for result in ocrResults {
-            let normalized = result.normalizedBounds.cgRect
-            let frame = CGRect(x: normalized.minX * bounds.width, y: normalized.minY * bounds.height, width: normalized.width * bounds.width, height: normalized.height * bounds.height)
+            let frame = ocrFrame(for: result)
             let path = NSBezierPath(roundedRect: frame, xRadius: 3, yRadius: 3)
-            path.lineWidth = 1.5
+            if selectedOCRIDs.contains(result.id) {
+                NSColor.systemCyan.withAlphaComponent(0.20).setFill()
+                path.fill()
+            }
+            NSColor.systemCyan.withAlphaComponent(0.9).setStroke()
+            path.lineWidth = selectedOCRIDs.contains(result.id) ? 2.5 : 1.5
             path.stroke()
+        }
+        if let ocrSelectionRect, ocrSelectionRect.width > 1 || ocrSelectionRect.height > 1 {
+            NSColor.controlAccentColor.withAlphaComponent(0.12).setFill()
+            NSColor.controlAccentColor.setStroke()
+            let marquee = NSBezierPath(rect: ocrSelectionRect)
+            marquee.lineWidth = 1
+            marquee.fill()
+            marquee.stroke()
         }
     }
 
     private func ocrResult(at point: CGPoint) -> OCRResult? {
-        ocrResults.first {
-            let normalized = $0.normalizedBounds.cgRect
-            return CGRect(x: normalized.minX * bounds.width, y: normalized.minY * bounds.height, width: normalized.width * bounds.width, height: normalized.height * bounds.height).contains(point)
+        ocrResults.first { ocrFrame(for: $0).insetBy(dx: -2, dy: -2).contains(point) }
+    }
+
+    private func ocrFrame(for result: OCRResult) -> CGRect {
+        let normalized = result.normalizedBounds.cgRect
+        return CGRect(
+            x: normalized.minX * bounds.width,
+            y: normalized.minY * bounds.height,
+            width: normalized.width * bounds.width,
+            height: normalized.height * bounds.height
+        )
+    }
+
+    private func drawCanvasImage(_ canvasImage: CGImage, clippedTo clipRect: CGRect? = nil) {
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        context.saveGState()
+        if let clipRect { context.clip(to: clipRect) }
+        context.translateBy(x: 0, y: bounds.height)
+        context.scaleBy(x: 1, y: -1)
+        context.draw(canvasImage, in: bounds)
+        context.restoreGState()
+    }
+
+    private func makeEffectPreview(kind: AnnotationKind) -> CGImage? {
+        let input = CIImage(cgImage: image)
+        let output: CIImage
+        switch kind {
+        case .blur:
+            output = input.clampedToExtent()
+                .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: 12])
+                .cropped(to: input.extent)
+        case .pixelate:
+            output = input
+                .applyingFilter("CIPixellate", parameters: [kCIInputScaleKey: 14])
+                .cropped(to: input.extent)
+        default:
+            return nil
         }
+        return effectContext.createCGImage(output, from: input.extent)
+    }
+
+    private func annotation(at point: CGPoint) -> Annotation? {
+        annotations.reversed().first { annotation in
+            if annotation.kind == .line || annotation.kind == .arrow,
+               let start = annotation.points.first?.cgPoint,
+               let end = annotation.points.last?.cgPoint {
+                return AnnotationCanvasGeometry.distance(from: point, toSegmentFrom: start, to: end) <= max(8, annotation.style.lineWidth + 4)
+            }
+            return annotation.frame.cgRect.insetBy(dx: -5, dy: -5).contains(point)
+        }
+    }
+
+    private func handleOperation(for annotation: Annotation, at point: CGPoint) -> DragOperation? {
+        if annotation.kind == .line || annotation.kind == .arrow,
+           let start = annotation.points.first?.cgPoint,
+           let end = annotation.points.last?.cgPoint {
+            if selectionHandle(at: start).contains(point) { return .startPoint }
+            if selectionHandle(at: end).contains(point) { return .endPoint }
+            if AnnotationCanvasGeometry.distance(from: point, toSegmentFrom: start, to: end) <= max(8, annotation.style.lineWidth + 4) {
+                return .move
+            }
+            return nil
+        }
+        if resizeHandle(for: annotation.frame.cgRect).contains(point) { return .resizeFrame }
+        return annotation.frame.cgRect.insetBy(dx: -5, dy: -5).contains(point) ? .move : nil
+    }
+
+    private func drawSelectionHandle(at point: CGPoint) {
+        let handle = NSBezierPath(ovalIn: selectionHandle(at: point))
+        handle.fill()
+        handle.lineWidth = 2
+        handle.stroke()
+    }
+
+    private func selectionHandle(at point: CGPoint) -> CGRect {
+        CGRect(x: point.x - 7, y: point.y - 7, width: 14, height: 14)
+    }
+
+    private func rect(from start: CGPoint, to end: CGPoint) -> CGRect {
+        CGRect(
+            x: min(start.x, end.x),
+            y: min(start.y, end.y),
+            width: abs(end.x - start.x),
+            height: abs(end.y - start.y)
+        )
     }
 
     private func requestText() -> String? {
@@ -977,38 +1568,55 @@ final class EditorCanvasView: NSView {
 }
 
 @MainActor
-private final class BackdropPanelController: NSWindowController {
+private final class BackdropPanelController: NSWindowController, NSWindowDelegate {
     private var configuration: BackdropConfiguration
     private let onSave: (BackdropConfiguration) -> Void
-    private let enabled = NSButton(checkboxWithTitle: "Enable backdrop", target: nil, action: nil)
+    private let preview: BackdropPreviewView
+    private let enabled = NSButton(checkboxWithTitle: "Add backdrop when copying or saving", target: nil, action: nil)
     private let padding = NSSlider(value: 48, minValue: 0, maxValue: 180, target: nil, action: nil)
     private let radius = NSSlider(value: 16, minValue: 0, maxValue: 64, target: nil, action: nil)
     private let shadow = NSSlider(value: 18, minValue: 0, maxValue: 60, target: nil, action: nil)
-    private let gradient = NSButton(checkboxWithTitle: "Gradient", target: nil, action: nil)
+    private let gradient = NSButton(checkboxWithTitle: "Use gradient", target: nil, action: nil)
     private let startColor = NSColorWell()
     private let endColor = NSColorWell()
     private let aspect = NSPopUpButton()
 
-    init(configuration: BackdropConfiguration, onSave: @escaping (BackdropConfiguration) -> Void) {
+    init(configuration: BackdropConfiguration, image: CGImage, onSave: @escaping (BackdropConfiguration) -> Void) {
         self.configuration = configuration
         self.onSave = onSave
-        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 420, height: 410), styleMask: [.titled], backing: .buffered, defer: false)
+        preview = BackdropPreviewView(image: image, configuration: configuration)
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 480, height: 590),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
         window.title = "Backdrop"
         super.init(window: window)
+        window.delegate = self
         configure()
     }
 
     required init?(coder: NSCoder) { nil }
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        cancel()
+        return false
+    }
 
     private func configure() {
         guard let content = window?.contentView else { return }
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 16
-        stack.edgeInsets = NSEdgeInsets(top: 24, left: 24, bottom: 24, right: 24)
+        stack.spacing = 14
         stack.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(stack)
+
+        let explanation = NSTextField(wrappingLabelWithString: "Backdrop adds a presentation background, padding, rounded corners, and a shadow to exported copies. Your editable screenshot stays unchanged.")
+        explanation.textColor = .secondaryLabelColor
+        explanation.maximumNumberOfLines = 3
+
         enabled.state = configuration.isEnabled ? .on : .off
         padding.doubleValue = configuration.padding
         radius.doubleValue = configuration.cornerRadius
@@ -1016,50 +1624,213 @@ private final class BackdropPanelController: NSWindowController {
         gradient.state = configuration.useGradient ? .on : .off
         startColor.color = configuration.startColor.nsColor
         endColor.color = configuration.endColor.nsColor
-        aspect.addItems(withTitles: ["Automatic", "1:1", "4:3", "16:9"])
+        aspect.addItems(withTitles: ["Automatic", "Square (1:1)", "Standard (4:3)", "Widescreen (16:9)"])
         aspect.selectItem(at: BackdropAspect.allCases.firstIndex(of: configuration.aspect) ?? 0)
+
+        for control in [enabled, gradient] {
+            control.target = self
+            control.action = #selector(previewChanged)
+        }
+        for control in [padding, radius, shadow] {
+            control.target = self
+            control.action = #selector(previewChanged)
+        }
+        for colorWell in [startColor, endColor] {
+            colorWell.target = self
+            colorWell.action = #selector(previewChanged)
+            colorWell.colorWellStyle = .minimal
+            colorWell.setAccessibilityLabel("Backdrop color")
+        }
+        aspect.target = self
+        aspect.action = #selector(previewChanged)
+
+        let colors = NSStackView(views: [startColor, endColor])
+        colors.orientation = .horizontal
+        colors.spacing = 12
+
+        stack.addArrangedSubview(explanation)
+        stack.addArrangedSubview(preview)
         stack.addArrangedSubview(enabled)
         stack.addArrangedSubview(labeled("Padding", padding))
         stack.addArrangedSubview(labeled("Corner radius", radius))
         stack.addArrangedSubview(labeled("Shadow", shadow))
         stack.addArrangedSubview(gradient)
-        let colors = NSStackView(views: [startColor, endColor])
-        colors.orientation = .horizontal
-        colors.spacing = 12
         stack.addArrangedSubview(labeled("Colors", colors))
         stack.addArrangedSubview(labeled("Canvas", aspect))
-        let buttons = NSStackView()
+
+        let cancelButton = NSButton(title: "Cancel", target: self, action: #selector(cancel))
+        cancelButton.keyEquivalent = "\u{1b}"
+        let applyButton = NSButton(title: "Apply", target: self, action: #selector(apply))
+        applyButton.keyEquivalent = "\r"
+        applyButton.bezelStyle = .rounded
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let buttons = NSStackView(views: [spacer, cancelButton, applyButton])
         buttons.orientation = .horizontal
-        buttons.addArrangedSubview(NSButton(title: "Cancel", target: self, action: #selector(cancel)))
-        buttons.addArrangedSubview(NSButton(title: "Apply", target: self, action: #selector(apply)))
+        buttons.spacing = 8
         stack.addArrangedSubview(buttons)
+
+        preview.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor), stack.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            stack.topAnchor.constraint(equalTo: content.topAnchor), stack.bottomAnchor.constraint(equalTo: content.bottomAnchor)
+            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 24),
+            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -24),
+            stack.topAnchor.constraint(equalTo: content.topAnchor, constant: 20),
+            stack.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -20),
+            explanation.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            preview.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            preview.heightAnchor.constraint(equalToConstant: 170),
+            buttons.widthAnchor.constraint(equalTo: stack.widthAnchor)
         ])
+        updateControlsEnabledState()
     }
 
     private func labeled(_ text: String, _ control: NSView) -> NSView {
         let row = NSStackView()
         row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 12
         let label = NSTextField(labelWithString: text)
-        label.widthAnchor.constraint(equalToConstant: 110).isActive = true
-        row.addArrangedSubview(label); row.addArrangedSubview(control)
-        control.widthAnchor.constraint(greaterThanOrEqualToConstant: 220).isActive = true
+        label.widthAnchor.constraint(equalToConstant: 112).isActive = true
+        row.addArrangedSubview(label)
+        row.addArrangedSubview(control)
+        control.widthAnchor.constraint(greaterThanOrEqualToConstant: 260).isActive = true
         return row
     }
 
-    @objc private func cancel() { window?.sheetParent?.endSheet(window!) }
+    private func currentConfiguration() -> BackdropConfiguration {
+        var result = configuration
+        result.isEnabled = enabled.state == .on
+        result.padding = padding.doubleValue
+        result.cornerRadius = radius.doubleValue
+        result.shadowRadius = shadow.doubleValue
+        result.useGradient = gradient.state == .on
+        result.startColor = RGBAColor(startColor.color)
+        result.endColor = RGBAColor(endColor.color)
+        result.aspect = BackdropAspect.allCases[max(0, aspect.indexOfSelectedItem)]
+        return result
+    }
+
+    private func updateControlsEnabledState() {
+        let isEnabled = enabled.state == .on
+        for control in [padding, radius, shadow, gradient, startColor, endColor, aspect] {
+            control.isEnabled = isEnabled
+        }
+        endColor.isEnabled = isEnabled && gradient.state == .on
+    }
+
+    @objc private func previewChanged() {
+        updateControlsEnabledState()
+        preview.configuration = currentConfiguration()
+    }
+
+    @objc private func cancel() {
+        guard let window else { return }
+        if let parent = window.sheetParent {
+            parent.endSheet(window, returnCode: .cancel)
+        } else {
+            window.orderOut(nil)
+        }
+    }
+
     @objc private func apply() {
-        configuration.isEnabled = enabled.state == .on
-        configuration.padding = padding.doubleValue
-        configuration.cornerRadius = radius.doubleValue
-        configuration.shadowRadius = shadow.doubleValue
-        configuration.useGradient = gradient.state == .on
-        configuration.startColor = RGBAColor(startColor.color)
-        configuration.endColor = RGBAColor(endColor.color)
-        configuration.aspect = BackdropAspect.allCases[aspect.indexOfSelectedItem]
+        configuration = currentConfiguration()
         onSave(configuration)
-        cancel()
+        guard let window else { return }
+        if let parent = window.sheetParent {
+            parent.endSheet(window, returnCode: .OK)
+        } else {
+            window.orderOut(nil)
+        }
+    }
+}
+
+@MainActor
+private final class BackdropPreviewView: NSView {
+    private let image: NSImage
+    var configuration: BackdropConfiguration { didSet { needsDisplay = true } }
+
+    init(image: CGImage, configuration: BackdropConfiguration) {
+        self.image = NSImage(cgImage: image, size: CGSize(width: image.width, height: image.height))
+        self.configuration = configuration
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.cornerRadius = 8
+        setAccessibilityRole(.image)
+        setAccessibilityLabel("Backdrop export preview")
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        NSColor.quaternaryLabelColor.withAlphaComponent(0.18).setFill()
+        NSBezierPath(roundedRect: bounds, xRadius: 8, yRadius: 8).fill()
+
+        let available = bounds.insetBy(dx: 14, dy: 14)
+        guard configuration.isEnabled else {
+            let imageRect = fittedRect(aspect: image.size.width / image.size.height, inside: available.insetBy(dx: 28, dy: 8))
+            image.draw(in: imageRect)
+            return
+        }
+
+        let sourceWidth = image.size.width
+        let sourceHeight = image.size.height
+        let padding = CGFloat(configuration.padding)
+        var canvasSize = CGSize(width: sourceWidth + padding * 2, height: sourceHeight + padding * 2)
+        switch configuration.aspect {
+        case .automatic: break
+        case .square: canvasSize = fittedCanvas(content: canvasSize, aspect: 1)
+        case .fourByThree: canvasSize = fittedCanvas(content: canvasSize, aspect: 4.0 / 3.0)
+        case .sixteenByNine: canvasSize = fittedCanvas(content: canvasSize, aspect: 16.0 / 9.0)
+        }
+        let canvasRect = fittedRect(aspect: canvasSize.width / canvasSize.height, inside: available)
+        let canvasPath = NSBezierPath(roundedRect: canvasRect, xRadius: 6, yRadius: 6)
+        if configuration.useGradient {
+            NSGradient(starting: configuration.startColor.nsColor, ending: configuration.endColor.nsColor)?.draw(in: canvasPath, angle: -45)
+        } else {
+            configuration.startColor.nsColor.setFill()
+            canvasPath.fill()
+        }
+
+        let scale = min(canvasRect.width / canvasSize.width, canvasRect.height / canvasSize.height)
+        let imageRect = CGRect(
+            x: canvasRect.midX - sourceWidth * scale / 2,
+            y: canvasRect.midY - sourceHeight * scale / 2,
+            width: sourceWidth * scale,
+            height: sourceHeight * scale
+        )
+        let cornerRadius = CGFloat(configuration.cornerRadius) * scale
+        let imagePath = NSBezierPath(roundedRect: imageRect, xRadius: cornerRadius, yRadius: cornerRadius)
+        if configuration.shadowRadius > 0 {
+            NSGraphicsContext.saveGraphicsState()
+            let shadow = NSShadow()
+            shadow.shadowColor = NSColor.black.withAlphaComponent(0.35)
+            shadow.shadowBlurRadius = min(18, CGFloat(configuration.shadowRadius) * scale)
+            shadow.shadowOffset = CGSize(width: 0, height: -3)
+            shadow.set()
+            NSColor.windowBackgroundColor.setFill()
+            imagePath.fill()
+            NSGraphicsContext.restoreGraphicsState()
+        }
+        NSGraphicsContext.saveGraphicsState()
+        imagePath.addClip()
+        image.draw(in: imageRect)
+        NSGraphicsContext.restoreGraphicsState()
+    }
+
+    private func fittedRect(aspect: CGFloat, inside rect: CGRect) -> CGRect {
+        if rect.width / rect.height > aspect {
+            let width = rect.height * aspect
+            return CGRect(x: rect.midX - width / 2, y: rect.minY, width: width, height: rect.height)
+        }
+        let height = rect.width / aspect
+        return CGRect(x: rect.minX, y: rect.midY - height / 2, width: rect.width, height: height)
+    }
+
+    private func fittedCanvas(content: CGSize, aspect: CGFloat) -> CGSize {
+        if content.width / content.height > aspect {
+            return CGSize(width: content.width, height: content.width / aspect)
+        }
+        return CGSize(width: content.height * aspect, height: content.height)
     }
 }

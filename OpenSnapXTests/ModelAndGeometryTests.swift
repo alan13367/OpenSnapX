@@ -27,6 +27,31 @@ final class ModelAndGeometryTests: XCTestCase {
         XCTAssertEqual(pixels, CGRect(x: 10, y: 60, width: 100, height: 50))
     }
 
+    func testMovingAnnotationPointsMovesRenderedLineWithItsFrame() {
+        let points = [CanvasPoint(CGPoint(x: 10, y: 20)), CanvasPoint(CGPoint(x: 90, y: 60))]
+        let moved = AnnotationCanvasGeometry.movedPoints(points, by: CGPoint(x: 15, y: -5))
+        XCTAssertEqual(moved.map(\.cgPoint), [CGPoint(x: 25, y: 15), CGPoint(x: 105, y: 55)])
+    }
+
+    func testResizingAnnotationPointsMovesLineEndpoints() {
+        let points = [CanvasPoint(CGPoint(x: 10, y: 20)), CanvasPoint(CGPoint(x: 90, y: 60))]
+        let resized = AnnotationCanvasGeometry.resizedPoints(
+            points,
+            from: CGRect(x: 10, y: 20, width: 80, height: 40),
+            to: CGRect(x: 10, y: 20, width: 160, height: 80)
+        )
+        XCTAssertEqual(resized.map(\.cgPoint), [CGPoint(x: 10, y: 20), CGPoint(x: 170, y: 100)])
+    }
+
+    func testLineHitAreaIsEasierThanItsVisibleStroke() {
+        let distance = AnnotationCanvasGeometry.distance(
+            from: CGPoint(x: 50, y: 26),
+            toSegmentFrom: CGPoint(x: 10, y: 20),
+            to: CGPoint(x: 90, y: 20)
+        )
+        XCTAssertEqual(distance, 6, accuracy: 0.001)
+    }
+
     func testCaptureSessionRoundTripsVersionedAnnotations() throws {
         let annotation = Annotation(
             kind: .arrow,

@@ -146,7 +146,7 @@ struct CoreGraphicsImageRenderer: ImageRenderer {
 
     private func drawArrowHead(from start: CGPoint, to end: CGPoint, width: CGFloat, in context: CGContext) {
         let angle = atan2(end.y - start.y, end.x - start.x)
-        let length = max(10, width * 3.5)
+        let length = max(14, width * 4)
         let spread = CGFloat.pi / 7
         context.move(to: end)
         context.addLine(to: CGPoint(x: end.x - length * cos(angle - spread), y: end.y - length * sin(angle - spread)))
@@ -210,9 +210,16 @@ struct CoreGraphicsImageRenderer: ImageRenderer {
             width: Double(image.width),
             height: Double(image.height)
         )
-        context.saveGState()
-        context.setShadow(offset: CGSize(width: 0, height: -6), blur: configuration.shadowRadius, color: NSColor.black.withAlphaComponent(0.32).cgColor)
         let path = CGPath(roundedRect: imageRect, cornerWidth: configuration.cornerRadius, cornerHeight: configuration.cornerRadius, transform: nil)
+        if configuration.shadowRadius > 0 {
+            context.saveGState()
+            context.setShadow(offset: CGSize(width: 0, height: -6), blur: configuration.shadowRadius, color: NSColor.black.withAlphaComponent(0.32).cgColor)
+            context.setFillColor(NSColor.black.cgColor)
+            context.addPath(path)
+            context.fillPath()
+            context.restoreGState()
+        }
+        context.saveGState()
         context.addPath(path)
         context.clip()
         context.draw(image, in: imageRect)

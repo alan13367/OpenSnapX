@@ -121,7 +121,7 @@ enum ArrowHeadStyle: String, Codable, Sendable {
 struct AnnotationStyle: Codable, Hashable, Sendable {
     var strokeColor: RGBAColor = .red
     var fillColor: RGBAColor?
-    var lineWidth: Double = 4
+    var lineWidth: Double = 5
     var opacity: Double = 1
     var fontSize: Double = 24
     var arrowHead: ArrowHeadStyle = .end
@@ -196,13 +196,6 @@ struct ExportOptions: Codable, Sendable {
     var flattenAnnotations = true
     var stripMetadata = true
     var colorSpaceName = "sRGB"
-}
-
-enum PostCaptureAction: String, Codable, CaseIterable, Sendable {
-    case preview
-    case copy
-    case save
-    case copyAndPreview
 }
 
 struct ShortcutDefinition: Codable, Hashable, Sendable {

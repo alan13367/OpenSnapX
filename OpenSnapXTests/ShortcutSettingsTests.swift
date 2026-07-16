@@ -24,6 +24,20 @@ final class ShortcutSettingsTests: XCTestCase {
         XCTAssertEqual(reloaded.shortcut(for: .captureDisplay), ShortcutAction.captureDisplay.defaultShortcut)
     }
 
+    func testCaptureSoundDefaultsToEnabledAndPersists() {
+        let suiteName = "OpenSnapXTests.captureSound.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            return XCTFail("Could not create isolated defaults suite")
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let settings = SettingsStore(defaults: defaults)
+        XCTAssertTrue(settings.captureSoundEnabled)
+
+        settings.captureSoundEnabled = false
+        XCTAssertFalse(SettingsStore(defaults: defaults).captureSoundEnabled)
+    }
+
     func testShortcutDisplayStringUsesMacModifierOrder() {
         let shortcut = ShortcutDefinition(
             keyCode: UInt32(kVK_ANSI_4),

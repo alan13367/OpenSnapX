@@ -32,7 +32,7 @@ script/         # build_and_run.sh
 
 - **UI on `@MainActor`.** Controllers and AppKit types stay main-actor; heavy work goes through `Sendable` service protocols.
 - **Protocol + concrete impl.** Prefer `any CaptureService`, `any HistoryStore`, etc., so logic stays testable without UI.
-- **Coordinator owns flow.** `AppCoordinator` wires shortcuts, overlays, preview, editor, history, and permissions. Don’t scatter capture lifecycle across unrelated controllers.
+- **Coordinator owns flow.** `AppCoordinator` wires shortcuts, overlays, editor, history, and permissions. Don’t scatter capture lifecycle across unrelated controllers.
 - **History packages.** Editable captures are atomic `.opensnapx` directories (manifest + source PNG + annotations + optional OCR + thumbnail). Preserve that format when changing persistence.
 - **Sandbox.** App is sandboxed; only user-selected file read/write beyond the container. No network entitlements.
 

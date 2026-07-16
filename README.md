@@ -13,7 +13,7 @@ OpenSnapX is a native, local-first screenshot and annotation utility for macOS. 
 - Area, window, display, delayed, scrolling, and text capture
 - Multi-display overlays with dimensions, keyboard adjustment, and window snapping
 - ScreenCaptureKit still capture with on-device Vision OCR
-- Floating quick-action preview, clipboard, PNG/JPEG save, drag-and-drop, and the macOS Share sheet
+- Direct-to-editor capture flow with clipboard, PNG/JPEG save, and the macOS Share sheet
 - Seven-day local editable history with automatic cleanup
 - Non-destructive arrows, lines, shapes, text, pen, highlight, counters, blur, pixelate, solid redaction, and crop
 - Undo/redo, zoom, annotation movement/duplication, pinned images, and focused backdrop styling
