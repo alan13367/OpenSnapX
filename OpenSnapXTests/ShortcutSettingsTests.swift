@@ -33,7 +33,28 @@ final class ShortcutSettingsTests: XCTestCase {
         XCTAssertEqual(shortcut.displayString, "⌃⌥⇧⌘4")
     }
 
-    func testGlobalShortcutsAreRegisteredExclusively() {
+    func testKnownAppleScreenshotShortcutsAreIdentified() {
+        XCTAssertTrue(ShortcutAction.captureDisplay.defaultShortcut.matchesBuiltInScreenshotShortcut)
+        XCTAssertTrue(ShortcutAction.captureRegion.defaultShortcut.matchesBuiltInScreenshotShortcut)
+        XCTAssertTrue(ShortcutAction.capturePalette.defaultShortcut.matchesBuiltInScreenshotShortcut)
+        XCTAssertFalse(ShortcutAction.captureText.defaultShortcut.matchesBuiltInScreenshotShortcut)
+
+        let clipboardVariant = ShortcutDefinition(
+            keyCode: UInt32(kVK_ANSI_4),
+            modifiers: UInt32(controlKey | shiftKey | cmdKey),
+            keyLabel: "4"
+        )
+        XCTAssertTrue(clipboardVariant.matchesBuiltInScreenshotShortcut)
+
+        let conflictFreeVariant = ShortcutDefinition(
+            keyCode: UInt32(kVK_ANSI_4),
+            modifiers: UInt32(controlKey | shiftKey),
+            keyLabel: "4"
+        )
+        XCTAssertFalse(conflictFreeVariant.matchesBuiltInScreenshotShortcut)
+    }
+
+    func testGlobalShortcutsAreRegisteredExclusivelyAgainstOtherAppHotKeys() {
         XCTAssertEqual(
             CarbonShortcutManager.registrationOptions,
             OptionBits(kEventHotKeyExclusive)

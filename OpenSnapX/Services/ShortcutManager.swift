@@ -57,6 +57,25 @@ enum ShortcutAction: UInt32, CaseIterable, Sendable {
     }
 }
 
+extension ShortcutDefinition {
+    /// Apple's screenshot shortcuts are handled outside Carbon's app hot-key
+    /// registry, so an exclusive registration can still fire alongside them.
+    var matchesBuiltInScreenshotShortcut: Bool {
+        let screenshotKeyCodes: Set<UInt32> = [
+            UInt32(kVK_ANSI_3),
+            UInt32(kVK_ANSI_4),
+            UInt32(kVK_ANSI_5),
+            UInt32(kVK_ANSI_6)
+        ]
+        guard screenshotKeyCodes.contains(keyCode) else { return false }
+
+        let requiredModifiers = UInt32(cmdKey | shiftKey)
+        let allowedModifiers = UInt32(cmdKey | shiftKey | controlKey)
+        return modifiers & requiredModifiers == requiredModifiers
+            && modifiers & ~allowedModifiers == 0
+    }
+}
+
 struct ShortcutRegistrationResult: Sendable {
     var action: ShortcutAction
     var succeeded: Bool

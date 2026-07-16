@@ -332,9 +332,11 @@ final class AppCoordinator: NSObject {
     }
 
     @objc private func showSettings() {
-        let controller = settingsController ?? SettingsWindowController(settings: settings) { [weak self] in
-            self?.registerConfiguredShortcuts() ?? []
-        }
+        let controller = settingsController ?? SettingsWindowController(
+            settings: settings,
+            registerShortcuts: { [weak self] in self?.registerConfiguredShortcuts() ?? [] },
+            showOnboarding: { [weak self] in self?.showOnboarding() }
+        )
         settingsController = controller
         controller.show()
     }

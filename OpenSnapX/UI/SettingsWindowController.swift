@@ -5,6 +5,7 @@ import ServiceManagement
 final class SettingsWindowController: NSWindowController {
     private let settings: SettingsStore
     private let registerShortcuts: () -> [ShortcutRegistrationResult]
+    private let showOnboarding: () -> Void
     private let permissionService = ScreenPermissionService()
 
     private let preview = NSPopUpButton()
@@ -15,19 +16,26 @@ final class SettingsWindowController: NSWindowController {
     private var shortcutRecorders: [ShortcutAction: ShortcutRecorderControl] = [:]
     private var shortcutStatusLabels: [ShortcutAction: NSTextField] = [:]
 
-    init(settings: SettingsStore, registerShortcuts: @escaping () -> [ShortcutRegistrationResult]) {
+    init(
+        settings: SettingsStore,
+        registerShortcuts: @escaping () -> [ShortcutRegistrationResult],
+        showOnboarding: @escaping () -> Void
+    ) {
         self.settings = settings
         self.registerShortcuts = registerShortcuts
+        self.showOnboarding = showOnboarding
+
         let window = NSWindow(
-            contentRect: CGRect(x: 0, y: 0, width: 650, height: 720),
-            styleMask: [.titled, .closable, .fullSizeContentView],
+            contentRect: CGRect(x: 0, y: 0, width: 760, height: 760),
+            styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
         window.title = "OpenSnapX Settings"
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = true
-        window.minSize = NSSize(width: 620, height: 680)
+        window.minSize = NSSize(width: 720, height: 720)
+        window.backgroundColor = .windowBackgroundColor
         super.init(window: window)
         configure()
     }
@@ -46,32 +54,51 @@ final class SettingsWindowController: NSWindowController {
     private func configure() {
         guard let content = window?.contentView else { return }
 
+        configureControls()
+
+        let appIcon = NSImageView(image: NSApp.applicationIconImage)
+        appIcon.imageScaling = .scaleProportionallyUpOrDown
+        appIcon.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            appIcon.widthAnchor.constraint(equalToConstant: 56),
+            appIcon.heightAnchor.constraint(equalToConstant: 56)
+        ])
+
         let title = NSTextField(labelWithString: "Settings")
         title.font = .systemFont(ofSize: 28, weight: .bold)
-        let subtitle = NSTextField(labelWithString: "Tune the capture workflow to fit how you work.")
-        subtitle.font = .systemFont(ofSize: 14)
+        let subtitle = NSTextField(labelWithString: "Make OpenSnapX fit the way you capture.")
+        subtitle.font = .systemFont(ofSize: 13)
         subtitle.textColor = .secondaryLabelColor
-        let header = NSStackView(views: [title, subtitle])
-        header.orientation = .vertical
-        header.alignment = .leading
-        header.spacing = 4
+        let headerLabels = verticalStack([title, subtitle], spacing: 4)
+        headerLabels.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let header = horizontalStack([appIcon, headerLabels], spacing: 16)
+        header.alignment = .centerY
+        headerLabels.trailingAnchor.constraint(equalTo: header.trailingAnchor).isActive = true
 
-        let stack = NSStackView(views: [header, makeGeneralCard(), makeShortcutCard()])
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 18
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(stack)
+        let root = verticalStack([
+            header,
+            separator(),
+            makeCaptureSection(),
+            separator(),
+            makeShortcutSection(),
+            separator(),
+            makeFooter()
+        ], spacing: 16)
+        root.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(root)
+
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 30),
-            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -30),
-            stack.topAnchor.constraint(equalTo: content.topAnchor, constant: 42),
-            stack.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -26)
+            root.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 36),
+            root.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -36),
+            root.topAnchor.constraint(equalTo: content.topAnchor, constant: 40),
+            root.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -24)
         ])
-        for view in stack.arrangedSubviews { view.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true }
+        for view in root.arrangedSubviews {
+            view.widthAnchor.constraint(equalTo: root.widthAnchor).isActive = true
+        }
     }
 
-    private func makeGeneralCard() -> NSView {
+    private func configureControls() {
         preview.addItems(withTitles: ["3 seconds", "5 seconds", "8 seconds", "Never dismiss"])
         preview.selectItem(at: [3.0, 5.0, 8.0, 0.0].firstIndex(of: settings.previewDuration) ?? 2)
         retention.addItems(withTitles: ["1 day", "7 days", "30 days", "Forever"])
@@ -88,64 +115,109 @@ final class SettingsWindowController: NSWindowController {
         launch.target = self
         launch.action = #selector(launchAtLoginChanged)
 
-        let card = SettingsCardView()
-        let heading = sectionHeading("Capture workflow", symbol: "camera.viewfinder")
-        let rows = [
-            settingRow("Floating preview", control: preview),
-            settingRow("History retention", control: retention),
-            settingRow("After capture", control: postCapture)
-        ]
-        let checks = NSStackView(views: [cursor, launch])
-        checks.orientation = .vertical
-        checks.alignment = .leading
-        checks.spacing = 9
-
-        install([heading] + rows + [checks], in: card, spacing: 11)
-        card.heightAnchor.constraint(equalToConstant: 245).isActive = true
-        return card
+        for popup in [preview, retention, postCapture] {
+            popup.controlSize = .regular
+            popup.widthAnchor.constraint(equalToConstant: 220).isActive = true
+        }
     }
 
-    private func makeShortcutCard() -> NSView {
-        let card = SettingsCardView()
+    private func makeCaptureSection() -> NSView {
+        let heading = sectionHeading(
+            "Capture",
+            detail: "Choose what happens before and after each screenshot.",
+            symbol: "camera.viewfinder",
+            color: .systemBlue
+        )
 
-        let title = NSTextField(labelWithString: "Keyboard shortcuts")
-        title.font = .systemFont(ofSize: 16, weight: .semibold)
-        let detail = NSTextField(wrappingLabelWithString: "Click a shortcut to record a new combination. OpenSnapX takes priority while it is running and releases the shortcut when it quits.")
-        detail.textColor = .secondaryLabelColor
-        detail.maximumNumberOfLines = 2
-        let headingText = NSStackView(views: [title, detail])
-        headingText.orientation = .vertical
-        headingText.alignment = .leading
-        headingText.spacing = 3
-        let icon = symbolView("command")
-        let heading = NSStackView(views: [icon, headingText])
-        heading.orientation = .horizontal
-        heading.alignment = .centerY
-        heading.spacing = 10
+        let options = verticalStack([
+            preferenceRow("Floating preview", detail: "How long the quick-action preview remains on screen", control: preview),
+            insetSeparator(),
+            preferenceRow("History retention", detail: "How long editable captures stay on this Mac", control: retention),
+            insetSeparator(),
+            preferenceRow("After capture", detail: "The action OpenSnapX performs immediately", control: postCapture)
+        ], spacing: 0)
 
-        var views: [NSView] = [heading]
-        for action in ShortcutAction.presentationOrder { views.append(shortcutRow(for: action)) }
+        cursor.font = .systemFont(ofSize: 13)
+        launch.font = .systemFont(ofSize: 13)
+        let checks = verticalStack([cursor, launch], spacing: 8)
+        checks.edgeInsets = NSEdgeInsets(top: 4, left: 34, bottom: 0, right: 0)
 
-        let systemSettings = NSButton(title: "Apple Screenshot Shortcuts…", target: self, action: #selector(openKeyboardSettings))
-        systemSettings.bezelStyle = .inline
-        systemSettings.contentTintColor = .controlAccentColor
-        let reset = NSButton(title: "Restore Defaults", target: self, action: #selector(resetShortcuts))
-        reset.bezelStyle = .inline
+        return verticalStack([heading, options, checks], spacing: 10)
+    }
+
+    private func makeShortcutSection() -> NSView {
+        let heading = sectionHeading(
+            "Keyboard shortcuts",
+            detail: "Apple’s ⌘⇧3/4/5 actions can run at the same time. To use those combinations only with OpenSnapX, disable their matches in Apple’s Screenshot settings.",
+            symbol: "command",
+            color: .systemPurple
+        )
+
+        var rows: [NSView] = []
+        for (index, action) in ShortcutAction.presentationOrder.enumerated() {
+            if index > 0 { rows.append(insetSeparator()) }
+            rows.append(shortcutRow(for: action))
+        }
+        let shortcuts = verticalStack(rows, spacing: 0)
+
+        let appleSettings = NSButton(title: "Apple Screenshot Settings…", target: self, action: #selector(openKeyboardSettings))
+        appleSettings.bezelStyle = .rounded
+        appleSettings.toolTip = "In Keyboard Shortcuts, select Screenshots and turn off the shortcuts assigned to OpenSnapX"
+        appleSettings.setAccessibilityHelp(appleSettings.toolTip)
+
+        let reset = NSButton(title: "Restore Shortcut Defaults", target: self, action: #selector(resetShortcuts))
+        reset.bezelStyle = .rounded
+
+        let buttonSpacer = NSView()
+        buttonSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let buttons = horizontalStack([buttonSpacer, reset, appleSettings], spacing: 8)
+
+        return verticalStack([heading, shortcuts, buttons], spacing: 10)
+    }
+
+    private func makeFooter() -> NSView {
+        let rerun = NSButton(title: "Run Onboarding Again…", target: self, action: #selector(rerunOnboarding))
+        rerun.bezelStyle = .rounded
+        rerun.toolTip = "Review screen access and keyboard shortcut setup"
+        rerun.setAccessibilityHelp(rerun.toolTip)
+
+        let note = NSTextField(labelWithString: "Screen access and shortcut setup")
+        note.font = .systemFont(ofSize: 11)
+        note.textColor = .tertiaryLabelColor
+
         let spacer = NSView()
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        let footer = NSStackView(views: [systemSettings, spacer, reset])
-        footer.orientation = .horizontal
-        views.append(footer)
+        return horizontalStack([rerun, note, spacer], spacing: 10)
+    }
 
-        install(views, in: card, spacing: 10)
-        card.heightAnchor.constraint(equalToConstant: 350).isActive = true
-        return card
+    private func preferenceRow(_ title: String, detail: String, control: NSView) -> NSView {
+        let titleLabel = NSTextField(labelWithString: title)
+        titleLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        let detailLabel = NSTextField(labelWithString: detail)
+        detailLabel.font = .systemFont(ofSize: 11)
+        detailLabel.textColor = .secondaryLabelColor
+        detailLabel.lineBreakMode = .byTruncatingTail
+
+        let labels = verticalStack([titleLabel, detailLabel], spacing: 2)
+        labels.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let row = horizontalStack([labels, control], spacing: 16)
+        row.alignment = .centerY
+        row.edgeInsets = NSEdgeInsets(top: 6, left: 34, bottom: 6, right: 0)
+        row.heightAnchor.constraint(equalToConstant: 48).isActive = true
+        return row
     }
 
     private func shortcutRow(for action: ShortcutAction) -> NSView {
+        let icon = symbolView(action.symbolName, size: 14, color: .secondaryLabelColor)
+
         let title = NSTextField(labelWithString: action.title)
         title.font = .systemFont(ofSize: 13, weight: .medium)
-        title.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let detail = NSTextField(labelWithString: action.detail)
+        detail.font = .systemFont(ofSize: 11)
+        detail.textColor = .secondaryLabelColor
+        detail.lineBreakMode = .byTruncatingTail
+        let labels = verticalStack([title, detail], spacing: 2)
+        labels.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
         let recorder = ShortcutRecorderControl(shortcut: settings.shortcut(for: action))
         recorder.onChange = { [weak self] shortcut in
@@ -153,66 +225,86 @@ final class SettingsWindowController: NSWindowController {
             self.settings.setShortcut(shortcut, for: action)
             self.refreshShortcutStatuses(self.registerShortcuts())
         }
-        recorder.widthAnchor.constraint(equalToConstant: 136).isActive = true
+        recorder.widthAnchor.constraint(equalToConstant: 126).isActive = true
         shortcutRecorders[action] = recorder
 
         let status = NSTextField(labelWithString: "")
-        status.font = .systemFont(ofSize: 11, weight: .semibold)
-        status.alignment = .right
-        status.widthAnchor.constraint(equalToConstant: 72).isActive = true
+        status.font = .systemFont(ofSize: 11, weight: .medium)
+        status.alignment = .left
+        status.lineBreakMode = .byTruncatingTail
+        status.widthAnchor.constraint(equalToConstant: 88).isActive = true
         shortcutStatusLabels[action] = status
 
-        let row = NSStackView(views: [symbolView(action.symbolName, size: 14), title, recorder, status])
-        row.orientation = .horizontal
+        let row = horizontalStack([icon, labels, recorder, status], spacing: 10)
         row.alignment = .centerY
-        row.spacing = 10
-        row.heightAnchor.constraint(equalToConstant: 38).isActive = true
+        row.edgeInsets = NSEdgeInsets(top: 4, left: 4, bottom: 4, right: 0)
+        row.heightAnchor.constraint(equalToConstant: 47).isActive = true
         return row
     }
 
-    private func sectionHeading(_ title: String, symbol: String) -> NSView {
-        let label = NSTextField(labelWithString: title)
-        label.font = .systemFont(ofSize: 16, weight: .semibold)
-        let stack = NSStackView(views: [symbolView(symbol), label])
-        stack.orientation = .horizontal
-        stack.alignment = .centerY
-        stack.spacing = 10
-        return stack
+    private func sectionHeading(_ title: String, detail: String, symbol: String, color: NSColor) -> NSView {
+        let icon = symbolView(symbol, size: 17, color: color)
+        let titleLabel = NSTextField(labelWithString: title)
+        titleLabel.font = .systemFont(ofSize: 16, weight: .semibold)
+        let detailLabel = NSTextField(wrappingLabelWithString: detail)
+        detailLabel.font = .systemFont(ofSize: 11)
+        detailLabel.textColor = .secondaryLabelColor
+        detailLabel.maximumNumberOfLines = 2
+        let labels = verticalStack([titleLabel, detailLabel], spacing: 3)
+        labels.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+        let heading = horizontalStack([icon, labels], spacing: 10)
+        heading.alignment = .top
+        labels.trailingAnchor.constraint(equalTo: heading.trailingAnchor).isActive = true
+        return heading
     }
 
-    private func symbolView(_ name: String, size: CGFloat = 18) -> NSImageView {
-        let view = NSImageView(image: NSImage(systemSymbolName: name, accessibilityDescription: nil) ?? NSImage())
+    private func symbolView(_ name: String, size: CGFloat, color: NSColor) -> NSImageView {
+        let image = NSImage(systemSymbolName: name, accessibilityDescription: nil) ?? NSImage()
+        let view = NSImageView(image: image)
         view.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: size, weight: .medium)
-        view.contentTintColor = .controlAccentColor
-        view.widthAnchor.constraint(equalToConstant: 25).isActive = true
+        view.contentTintColor = color
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.widthAnchor.constraint(equalToConstant: 24).isActive = true
+        view.heightAnchor.constraint(equalToConstant: 24).isActive = true
         return view
     }
 
-    private func settingRow(_ title: String, control: NSView) -> NSView {
-        let label = NSTextField(labelWithString: title)
-        label.font = .systemFont(ofSize: 13)
-        label.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        control.widthAnchor.constraint(equalToConstant: 225).isActive = true
-        let row = NSStackView(views: [label, control])
-        row.orientation = .horizontal
-        row.alignment = .centerY
-        return row
-    }
-
-    private func install(_ views: [NSView], in card: NSView, spacing: CGFloat) {
+    private func verticalStack(_ views: [NSView], spacing: CGFloat) -> NSStackView {
         let stack = NSStackView(views: views)
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = spacing
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        card.addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 20),
-            stack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -20),
-            stack.topAnchor.constraint(equalTo: card.topAnchor, constant: 18),
-            stack.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -18)
-        ])
         for view in views { view.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true }
+        return stack
+    }
+
+    private func horizontalStack(_ views: [NSView], spacing: CGFloat) -> NSStackView {
+        let stack = NSStackView(views: views)
+        stack.orientation = .horizontal
+        stack.alignment = .centerY
+        stack.spacing = spacing
+        return stack
+    }
+
+    private func separator() -> NSBox {
+        let separator = NSBox()
+        separator.boxType = .separator
+        return separator
+    }
+
+    private func insetSeparator() -> NSView {
+        let container = NSView()
+        let line = separator()
+        line.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(line)
+        NSLayoutConstraint.activate([
+            line.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 34),
+            line.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            line.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            container.heightAnchor.constraint(equalToConstant: 1)
+        ])
+        return container
     }
 
     @objc private func preferencesChanged() {
@@ -234,7 +326,9 @@ final class SettingsWindowController: NSWindowController {
         }
     }
 
-    @objc private func openKeyboardSettings() { permissionService.openKeyboardShortcutSettings() }
+    @objc private func openKeyboardSettings() {
+        permissionService.openKeyboardShortcutSettings()
+    }
 
     @objc private func resetShortcuts() {
         for action in ShortcutAction.allCases {
@@ -244,28 +338,28 @@ final class SettingsWindowController: NSWindowController {
         refreshShortcutStatuses(registerShortcuts())
     }
 
+    @objc private func rerunOnboarding() {
+        window?.orderOut(nil)
+        showOnboarding()
+    }
+
     private func refreshShortcutStatuses(_ results: [ShortcutRegistrationResult]) {
         for result in results {
             guard let label = shortcutStatusLabels[result.action] else { continue }
-            label.stringValue = result.succeeded ? "● Ready" : "● In use"
-            label.textColor = result.succeeded ? .systemGreen : .systemOrange
-            label.toolTip = result.succeeded ? "Shortcut registered exclusively while OpenSnapX is running" : "Another app has reserved this combination exclusively (error \(result.status))."
+            let shortcut = settings.shortcut(for: result.action)
+            if !result.succeeded {
+                label.stringValue = "●  In use"
+                label.textColor = .systemOrange
+                label.toolTip = "Another app has reserved this shortcut (error \(result.status))."
+            } else if shortcut.matchesBuiltInScreenshotShortcut {
+                label.stringValue = "●  Check Apple"
+                label.textColor = .systemOrange
+                label.toolTip = "Registered in OpenSnapX, but this matches a built-in macOS screenshot shortcut. Disable the matching Apple shortcut if both actions run."
+            } else {
+                label.stringValue = "●  Ready"
+                label.textColor = .systemGreen
+                label.toolTip = "Shortcut registered while OpenSnapX is running."
+            }
         }
     }
-}
-
-private final class SettingsCardView: NSVisualEffectView {
-    init() {
-        super.init(frame: .zero)
-        material = .contentBackground
-        blendingMode = .withinWindow
-        state = .active
-        wantsLayer = true
-        layer?.cornerRadius = 14
-        layer?.cornerCurve = .continuous
-        layer?.borderWidth = 1
-        layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.5).cgColor
-    }
-
-    required init?(coder: NSCoder) { nil }
 }
