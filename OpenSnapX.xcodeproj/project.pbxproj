@@ -1,0 +1,590 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		16D621F285B54E2FD144A437 /* Geometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5E0F4ED622BC19B4270AFFF /* Geometry.swift */; };
+		2222547240BFDF17EA885A24 /* ScreenPermissionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA0EB68EEE9C9DDEC590913A /* ScreenPermissionService.swift */; };
+		313F3911B233AAAE07C00573 /* ScrollingCaptureController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0265A0FA717DFCCC94E67A04 /* ScrollingCaptureController.swift */; };
+		3873AA88AB5576E734C709E6 /* HistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E35A11A1ADF8E80A63BA8CA8 /* HistoryStore.swift */; };
+		3DACF98C0DD01B8BC38F2B97 /* HistoryStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 541F26929C053F57ECE74006 /* HistoryStoreTests.swift */; };
+		47CA57CC15ABC013D264F8E3 /* ImageRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07C1787221C5E8BCCF489A75 /* ImageRenderer.swift */; };
+		51CE90FA36949660585BC0C1 /* OnboardingWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AF472DA4200D391ED21DA52 /* OnboardingWindowController.swift */; };
+		5980FEC542092838D9026D8C /* FloatingPreviewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 380C3C5BB394A63A9C971847 /* FloatingPreviewController.swift */; };
+		5B4E5FBE8732BB289A2BB5E0 /* AppCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70A09CD66815B42CF3F8602B /* AppCoordinator.swift */; };
+		5F421F1D60B7F08A0CC5767D /* ShortcutManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7094A98DA55272A8DD061485 /* ShortcutManager.swift */; };
+		61B92B8F0120C022E0F523C7 /* EditorWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3211F5B2618CF375B6815B7 /* EditorWindowController.swift */; };
+		62ADBB0BAE0826AF106CD993 /* HistoryWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AC7B39E6678B603F8B0F1FB /* HistoryWindowController.swift */; };
+		6A0F920061F983159DFA89E5 /* ImageRendererTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A99A751402F3778AAA6F4DC /* ImageRendererTests.swift */; };
+		6BA5EBB601A2E8760E7F0055 /* ShortcutSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AB10C59EF2465904FDB1B53 /* ShortcutSettingsTests.swift */; };
+		72D9C01356F23DB2FC75A1A7 /* ScreenCaptureService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38A9A269149B4B5CA65F96FE /* ScreenCaptureService.swift */; };
+		738359CE39E386C31C64843D /* OCRService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F20437A257A1EE73ED66F78D /* OCRService.swift */; };
+		7B3D7E0BAA420E08385512C8 /* ImageCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5B7342B509D01F8BB3A91EB /* ImageCodec.swift */; };
+		8104059B9BF4FD689B77CD9E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D7E67877613668E83743B77D /* Assets.xcassets */; };
+		824CF90D98D47A3A96F09CC5 /* CapturePaletteWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32E1E022B0FFE80093213484 /* CapturePaletteWindowController.swift */; };
+		82D0FEA826AE323D57E8C2D6 /* SettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FAA31D951076D7C310E85C0 /* SettingsStore.swift */; };
+		85FC60860A2D22C32C2453E3 /* PinnedImageController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B42512FD6CFB41064E454F63 /* PinnedImageController.swift */; };
+		8DFF096F48BD02286FDA29A9 /* OpenSnapXModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 077227E4597895DE04CDF2C1 /* OpenSnapXModels.swift */; };
+		97E8334999360A656D5FD45E /* ScrollingCaptureEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87DEF211632EF49EFFAD613F /* ScrollingCaptureEngineTests.swift */; };
+		99CA9E9EA449557B21189FDF /* ScrollingCaptureEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89D6A7F2EEBAED46782AB890 /* ScrollingCaptureEngine.swift */; };
+		9F1ED6E08AA8D7AADF4AAE57 /* SettingsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69E1CFF477EBBA7FCA2365AD /* SettingsWindowController.swift */; };
+		ADBEAB345BA9DEFE041F436E /* CaptureOverlayController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F7F6D99C5943C7BDC088F71 /* CaptureOverlayController.swift */; };
+		B07A6672D359937FA6EFD261 /* ShortcutRecorderControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51C4468E6661698246E3CE68 /* ShortcutRecorderControl.swift */; };
+		B19FF6900D2B7683616C4608 /* OCRServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5996176FD5DF73C9AE79F78C /* OCRServiceTests.swift */; };
+		B35B11180EE06223ED49C094 /* ModelAndGeometryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E9D2E6EBB6BA86E78D47745 /* ModelAndGeometryTests.swift */; };
+		B6FC6B9326931F83ACC00BA8 /* ExportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3747C4B6293991C7701E73A3 /* ExportService.swift */; };
+		CE63113B23CA3C8210606911 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FB2E1A9E2B93202897D374 /* AppDelegate.swift */; };
+		D0A04888190924725F066B41 /* Color.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A425F4DF73BEC5C2B9ECFB5 /* Color.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		265F25033C468D4A38B545BF /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 65717919CBFE99038EABDB20 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = AE47A455B7270B06947C10E4;
+			remoteInfo = OpenSnapX;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		0265A0FA717DFCCC94E67A04 /* ScrollingCaptureController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollingCaptureController.swift; sourceTree = "<group>"; };
+		077227E4597895DE04CDF2C1 /* OpenSnapXModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenSnapXModels.swift; sourceTree = "<group>"; };
+		07C1787221C5E8BCCF489A75 /* ImageRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageRenderer.swift; sourceTree = "<group>"; };
+		1A99A751402F3778AAA6F4DC /* ImageRendererTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageRendererTests.swift; sourceTree = "<group>"; };
+		1AC7B39E6678B603F8B0F1FB /* HistoryWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryWindowController.swift; sourceTree = "<group>"; };
+		1FAA31D951076D7C310E85C0 /* SettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsStore.swift; sourceTree = "<group>"; };
+		24333E5B2BB8705A99205456 /* OpenSnapX.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OpenSnapX.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		2AB10C59EF2465904FDB1B53 /* ShortcutSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutSettingsTests.swift; sourceTree = "<group>"; };
+		32E1E022B0FFE80093213484 /* CapturePaletteWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CapturePaletteWindowController.swift; sourceTree = "<group>"; };
+		3747C4B6293991C7701E73A3 /* ExportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportService.swift; sourceTree = "<group>"; };
+		380C3C5BB394A63A9C971847 /* FloatingPreviewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingPreviewController.swift; sourceTree = "<group>"; };
+		38A9A269149B4B5CA65F96FE /* ScreenCaptureService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenCaptureService.swift; sourceTree = "<group>"; };
+		51C4468E6661698246E3CE68 /* ShortcutRecorderControl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutRecorderControl.swift; sourceTree = "<group>"; };
+		541F26929C053F57ECE74006 /* HistoryStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryStoreTests.swift; sourceTree = "<group>"; };
+		5996176FD5DF73C9AE79F78C /* OCRServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OCRServiceTests.swift; sourceTree = "<group>"; };
+		5F7F6D99C5943C7BDC088F71 /* CaptureOverlayController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureOverlayController.swift; sourceTree = "<group>"; };
+		69E1CFF477EBBA7FCA2365AD /* SettingsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowController.swift; sourceTree = "<group>"; };
+		6AF472DA4200D391ED21DA52 /* OnboardingWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingWindowController.swift; sourceTree = "<group>"; };
+		6E9D2E6EBB6BA86E78D47745 /* ModelAndGeometryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelAndGeometryTests.swift; sourceTree = "<group>"; };
+		7094A98DA55272A8DD061485 /* ShortcutManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutManager.swift; sourceTree = "<group>"; };
+		70A09CD66815B42CF3F8602B /* AppCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppCoordinator.swift; sourceTree = "<group>"; };
+		7A425F4DF73BEC5C2B9ECFB5 /* Color.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Color.swift; sourceTree = "<group>"; };
+		87DEF211632EF49EFFAD613F /* ScrollingCaptureEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollingCaptureEngineTests.swift; sourceTree = "<group>"; };
+		87F72801932FDC4A48F65918 /* OpenSnapXTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = OpenSnapXTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		89D6A7F2EEBAED46782AB890 /* ScrollingCaptureEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollingCaptureEngine.swift; sourceTree = "<group>"; };
+		A3211F5B2618CF375B6815B7 /* EditorWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorWindowController.swift; sourceTree = "<group>"; };
+		B42512FD6CFB41064E454F63 /* PinnedImageController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PinnedImageController.swift; sourceTree = "<group>"; };
+		C0FB2E1A9E2B93202897D374 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		C5B7342B509D01F8BB3A91EB /* ImageCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageCodec.swift; sourceTree = "<group>"; };
+		D5E0F4ED622BC19B4270AFFF /* Geometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Geometry.swift; sourceTree = "<group>"; };
+		D7E67877613668E83743B77D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		DA0EB68EEE9C9DDEC590913A /* ScreenPermissionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenPermissionService.swift; sourceTree = "<group>"; };
+		E35A11A1ADF8E80A63BA8CA8 /* HistoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryStore.swift; sourceTree = "<group>"; };
+		F20437A257A1EE73ED66F78D /* OCRService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OCRService.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		13B91A418823ACEAB3895F01 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				3747C4B6293991C7701E73A3 /* ExportService.swift */,
+				E35A11A1ADF8E80A63BA8CA8 /* HistoryStore.swift */,
+				07C1787221C5E8BCCF489A75 /* ImageRenderer.swift */,
+				F20437A257A1EE73ED66F78D /* OCRService.swift */,
+				38A9A269149B4B5CA65F96FE /* ScreenCaptureService.swift */,
+				DA0EB68EEE9C9DDEC590913A /* ScreenPermissionService.swift */,
+				89D6A7F2EEBAED46782AB890 /* ScrollingCaptureEngine.swift */,
+				1FAA31D951076D7C310E85C0 /* SettingsStore.swift */,
+				7094A98DA55272A8DD061485 /* ShortcutManager.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		6DFFD7DB2590D0BE1D2D2573 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				077227E4597895DE04CDF2C1 /* OpenSnapXModels.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		6F8FF5223D239D6C7F42DA49 /* OpenSnapX */ = {
+			isa = PBXGroup;
+			children = (
+				BF485A645634665D926E0F7D /* App */,
+				6DFFD7DB2590D0BE1D2D2573 /* Models */,
+				DD81029E90E9C99CB8FF5C84 /* Resources */,
+				13B91A418823ACEAB3895F01 /* Services */,
+				E2D0340EBE90880414C8B2E1 /* Support */,
+				E26ACBDDB58FD1AB176505BF /* UI */,
+			);
+			path = OpenSnapX;
+			sourceTree = "<group>";
+		};
+		9067534942D9B6BD3C4C2C99 /* OpenSnapXTests */ = {
+			isa = PBXGroup;
+			children = (
+				541F26929C053F57ECE74006 /* HistoryStoreTests.swift */,
+				1A99A751402F3778AAA6F4DC /* ImageRendererTests.swift */,
+				6E9D2E6EBB6BA86E78D47745 /* ModelAndGeometryTests.swift */,
+				5996176FD5DF73C9AE79F78C /* OCRServiceTests.swift */,
+				87DEF211632EF49EFFAD613F /* ScrollingCaptureEngineTests.swift */,
+				2AB10C59EF2465904FDB1B53 /* ShortcutSettingsTests.swift */,
+			);
+			path = OpenSnapXTests;
+			sourceTree = "<group>";
+		};
+		B3C5C1288BDC8FA9D75B606E /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				24333E5B2BB8705A99205456 /* OpenSnapX.app */,
+				87F72801932FDC4A48F65918 /* OpenSnapXTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		B6B10C78AB518BE534225E37 = {
+			isa = PBXGroup;
+			children = (
+				6F8FF5223D239D6C7F42DA49 /* OpenSnapX */,
+				9067534942D9B6BD3C4C2C99 /* OpenSnapXTests */,
+				B3C5C1288BDC8FA9D75B606E /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		BF485A645634665D926E0F7D /* App */ = {
+			isa = PBXGroup;
+			children = (
+				70A09CD66815B42CF3F8602B /* AppCoordinator.swift */,
+				C0FB2E1A9E2B93202897D374 /* AppDelegate.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		DD81029E90E9C99CB8FF5C84 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				D7E67877613668E83743B77D /* Assets.xcassets */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		E26ACBDDB58FD1AB176505BF /* UI */ = {
+			isa = PBXGroup;
+			children = (
+				5F7F6D99C5943C7BDC088F71 /* CaptureOverlayController.swift */,
+				32E1E022B0FFE80093213484 /* CapturePaletteWindowController.swift */,
+				A3211F5B2618CF375B6815B7 /* EditorWindowController.swift */,
+				380C3C5BB394A63A9C971847 /* FloatingPreviewController.swift */,
+				1AC7B39E6678B603F8B0F1FB /* HistoryWindowController.swift */,
+				6AF472DA4200D391ED21DA52 /* OnboardingWindowController.swift */,
+				B42512FD6CFB41064E454F63 /* PinnedImageController.swift */,
+				0265A0FA717DFCCC94E67A04 /* ScrollingCaptureController.swift */,
+				69E1CFF477EBBA7FCA2365AD /* SettingsWindowController.swift */,
+				51C4468E6661698246E3CE68 /* ShortcutRecorderControl.swift */,
+			);
+			path = UI;
+			sourceTree = "<group>";
+		};
+		E2D0340EBE90880414C8B2E1 /* Support */ = {
+			isa = PBXGroup;
+			children = (
+				7A425F4DF73BEC5C2B9ECFB5 /* Color.swift */,
+				D5E0F4ED622BC19B4270AFFF /* Geometry.swift */,
+				C5B7342B509D01F8BB3A91EB /* ImageCodec.swift */,
+			);
+			path = Support;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		AE47A455B7270B06947C10E4 /* OpenSnapX */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 191EA551F3D50A0ED5ABCE05 /* Build configuration list for PBXNativeTarget "OpenSnapX" */;
+			buildPhases = (
+				6954678274D05998138BC19F /* Sources */,
+				5A96D64890B070031854AD21 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = OpenSnapX;
+			packageProductDependencies = (
+			);
+			productName = OpenSnapX;
+			productReference = 24333E5B2BB8705A99205456 /* OpenSnapX.app */;
+			productType = "com.apple.product-type.application";
+		};
+		BE2E8937FE313C048E3542FD /* OpenSnapXTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B2C3F41D7A9555A98B6ECEB3 /* Build configuration list for PBXNativeTarget "OpenSnapXTests" */;
+			buildPhases = (
+				E3E92BDDAE005088E1E7ED2C /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				6AEA232C752755F1BC1B42FB /* PBXTargetDependency */,
+			);
+			name = OpenSnapXTests;
+			packageProductDependencies = (
+			);
+			productName = OpenSnapXTests;
+			productReference = 87F72801932FDC4A48F65918 /* OpenSnapXTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		65717919CBFE99038EABDB20 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					AE47A455B7270B06947C10E4 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+					BE2E8937FE313C048E3542FD = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = C8A502501198385109059590 /* Build configuration list for PBXProject "OpenSnapX" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = B6B10C78AB518BE534225E37;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = B3C5C1288BDC8FA9D75B606E /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				AE47A455B7270B06947C10E4 /* OpenSnapX */,
+				BE2E8937FE313C048E3542FD /* OpenSnapXTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		5A96D64890B070031854AD21 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8104059B9BF4FD689B77CD9E /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		6954678274D05998138BC19F /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5B4E5FBE8732BB289A2BB5E0 /* AppCoordinator.swift in Sources */,
+				CE63113B23CA3C8210606911 /* AppDelegate.swift in Sources */,
+				ADBEAB345BA9DEFE041F436E /* CaptureOverlayController.swift in Sources */,
+				824CF90D98D47A3A96F09CC5 /* CapturePaletteWindowController.swift in Sources */,
+				D0A04888190924725F066B41 /* Color.swift in Sources */,
+				61B92B8F0120C022E0F523C7 /* EditorWindowController.swift in Sources */,
+				B6FC6B9326931F83ACC00BA8 /* ExportService.swift in Sources */,
+				5980FEC542092838D9026D8C /* FloatingPreviewController.swift in Sources */,
+				16D621F285B54E2FD144A437 /* Geometry.swift in Sources */,
+				3873AA88AB5576E734C709E6 /* HistoryStore.swift in Sources */,
+				62ADBB0BAE0826AF106CD993 /* HistoryWindowController.swift in Sources */,
+				7B3D7E0BAA420E08385512C8 /* ImageCodec.swift in Sources */,
+				47CA57CC15ABC013D264F8E3 /* ImageRenderer.swift in Sources */,
+				738359CE39E386C31C64843D /* OCRService.swift in Sources */,
+				51CE90FA36949660585BC0C1 /* OnboardingWindowController.swift in Sources */,
+				8DFF096F48BD02286FDA29A9 /* OpenSnapXModels.swift in Sources */,
+				85FC60860A2D22C32C2453E3 /* PinnedImageController.swift in Sources */,
+				72D9C01356F23DB2FC75A1A7 /* ScreenCaptureService.swift in Sources */,
+				2222547240BFDF17EA885A24 /* ScreenPermissionService.swift in Sources */,
+				313F3911B233AAAE07C00573 /* ScrollingCaptureController.swift in Sources */,
+				99CA9E9EA449557B21189FDF /* ScrollingCaptureEngine.swift in Sources */,
+				82D0FEA826AE323D57E8C2D6 /* SettingsStore.swift in Sources */,
+				9F1ED6E08AA8D7AADF4AAE57 /* SettingsWindowController.swift in Sources */,
+				5F421F1D60B7F08A0CC5767D /* ShortcutManager.swift in Sources */,
+				B07A6672D359937FA6EFD261 /* ShortcutRecorderControl.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E3E92BDDAE005088E1E7ED2C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3DACF98C0DD01B8BC38F2B97 /* HistoryStoreTests.swift in Sources */,
+				6A0F920061F983159DFA89E5 /* ImageRendererTests.swift in Sources */,
+				B35B11180EE06223ED49C094 /* ModelAndGeometryTests.swift in Sources */,
+				B19FF6900D2B7683616C4608 /* OCRServiceTests.swift in Sources */,
+				97E8334999360A656D5FD45E /* ScrollingCaptureEngineTests.swift in Sources */,
+				6BA5EBB601A2E8760E7F0055 /* ShortcutSettingsTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		6AEA232C752755F1BC1B42FB /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = AE47A455B7270B06947C10E4 /* OpenSnapX */;
+			targetProxy = 265F25033C468D4A38B545BF /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		22630CFF6E2FF62C333CF887 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.alan13367.OpenSnapXTests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OpenSnapX.app/Contents/MacOS/OpenSnapX";
+			};
+			name = Release;
+		};
+		2D9877A9F0B442ECEEA35910 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = OpenSnapX/Resources/OpenSnapX.entitlements;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = OpenSnapX/Resources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.alan13367.OpenSnapX;
+				PRODUCT_NAME = OpenSnapX;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		7F046F77299D9C50FE834384 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_STRICT_CONCURRENCY = targeted;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		9583D623C451AB756ADFE33A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.alan13367.OpenSnapXTests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OpenSnapX.app/Contents/MacOS/OpenSnapX";
+			};
+			name = Debug;
+		};
+		CC5449C2AC09693F8F70E1E8 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = OpenSnapX/Resources/OpenSnapX.entitlements;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = OpenSnapX/Resources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.alan13367.OpenSnapX;
+				PRODUCT_NAME = OpenSnapX;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		F22AB3C2BAF3629629B4AFC5 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = targeted;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		191EA551F3D50A0ED5ABCE05 /* Build configuration list for PBXNativeTarget "OpenSnapX" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2D9877A9F0B442ECEEA35910 /* Debug */,
+				CC5449C2AC09693F8F70E1E8 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		B2C3F41D7A9555A98B6ECEB3 /* Build configuration list for PBXNativeTarget "OpenSnapXTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9583D623C451AB756ADFE33A /* Debug */,
+				22630CFF6E2FF62C333CF887 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		C8A502501198385109059590 /* Build configuration list for PBXProject "OpenSnapX" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F22AB3C2BAF3629629B4AFC5 /* Debug */,
+				7F046F77299D9C50FE834384 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 65717919CBFE99038EABDB20 /* Project object */;
+}

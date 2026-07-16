@@ -1,0 +1,8 @@
+.DS_Store
+.build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+OpenSnapX.xcodeproj/project.xcworkspace/xcuserdata/
+OpenSnapX.xcodeproj/xcuserdata/
+

@@ -1,0 +1,51 @@
+import CoreGraphics
+import XCTest
+@testable import OpenSnapX
+
+final class HistoryStoreTests: XCTestCase {
+    private var root: URL!
+
+    override func setUpWithError() throws {
+        root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    func testCreateLoadUpdateAndDelete() async throws {
+        let store = LocalHistoryStore(rootURL: root)
+        let result = CaptureResult(image: try solidImage(width: 32, height: 24), mode: .region, displayScale: 2)
+        var session = try await store.create(from: result)
+        session.annotations.append(Annotation(kind: .redact, frame: CanvasRect(CGRect(x: 2, y: 2, width: 8, height: 8))))
+        try await store.save(session)
+        let (loaded, image) = try await store.load(id: result.id)
+        XCTAssertEqual(loaded.annotations.count, 1)
+        XCTAssertEqual(image.image.width, 32)
+        let beforeDelete = await store.list()
+        XCTAssertEqual(beforeDelete.count, 1)
+        try await store.delete(id: result.id)
+        let afterDelete = await store.list()
+        XCTAssertTrue(afterDelete.isEmpty)
+    }
+
+    func testCleanupExpiresOldSessionsAndIgnoresCorruptEntries() async throws {
+        let store = LocalHistoryStore(rootURL: root)
+        let old = CaptureResult(image: try solidImage(width: 8, height: 8), mode: .display, createdAt: Date(timeIntervalSinceNow: -10 * 86_400))
+        _ = try await store.create(from: old)
+        let corrupt = root.appendingPathComponent("corrupt.opensnapx", isDirectory: true)
+        try FileManager.default.createDirectory(at: corrupt, withIntermediateDirectories: true)
+        try Data("not json".utf8).write(to: corrupt.appendingPathComponent("manifest.json"))
+        await store.cleanup(retentionDays: 7)
+        let remaining = await store.list()
+        XCTAssertTrue(remaining.isEmpty)
+    }
+}
+
+func solidImage(width: Int, height: Int, color: CGColor = CGColor(red: 1, green: 1, blue: 1, alpha: 1)) throws -> CGImage {
+    let space = CGColorSpace(name: CGColorSpace.sRGB)!
+    let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    context.setFillColor(color)
+    context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+    return context.makeImage()!
+}
