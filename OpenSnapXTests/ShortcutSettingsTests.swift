@@ -1,3 +1,4 @@
+import AppKit
 import Carbon
 import XCTest
 @testable import OpenSnapX
@@ -34,6 +35,14 @@ final class ShortcutSettingsTests: XCTestCase {
         XCTAssertEqual(shortcut.displayString, "⇧⌘C")
     }
 
+    func testScrollingCaptureDefaultsToCommandShift6() {
+        let shortcut = ShortcutAction.captureScrolling.defaultShortcut
+        XCTAssertEqual(shortcut.keyCode, UInt32(kVK_ANSI_6))
+        XCTAssertEqual(shortcut.modifiers, UInt32(cmdKey | shiftKey))
+        XCTAssertEqual(shortcut.keyLabel, "6")
+        XCTAssertEqual(shortcut.displayString, "⇧⌘6")
+    }
+
     func testCaptureSoundDefaultsToEnabledAndPersists() {
         let suiteName = "OpenSnapXTests.captureSound.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
@@ -55,6 +64,42 @@ final class ShortcutSettingsTests: XCTestCase {
             keyLabel: "4"
         )
         XCTAssertEqual(shortcut.displayString, "⌃⌥⇧⌘4")
+    }
+
+    func testNumberRowShortcutUsesKeyCapInsteadOfShiftedCharacter() throws {
+        let event = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command, .shift],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "&",
+            charactersIgnoringModifiers: "&",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_6)
+        ))
+        XCTAssertEqual(ShortcutRecorderControl.keyLabel(for: event), "6")
+    }
+
+    func testPersistedShiftedNumberLabelIsNormalizedToKeyCap() {
+        let suiteName = "OpenSnapXTests.numberLabel.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            return XCTFail("Could not create isolated defaults suite")
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let settings = SettingsStore(defaults: defaults)
+        settings.setShortcut(ShortcutDefinition(
+            keyCode: UInt32(kVK_ANSI_6),
+            modifiers: UInt32(cmdKey | shiftKey),
+            keyLabel: "&"
+        ), for: .captureScrolling)
+
+        let shortcut = settings.shortcut(for: .captureScrolling)
+        XCTAssertEqual(shortcut.keyCode, UInt32(kVK_ANSI_6))
+        XCTAssertEqual(shortcut.keyLabel, "6")
+        XCTAssertEqual(shortcut.displayString, "⇧⌘6")
     }
 
     func testKnownAppleScreenshotShortcutsAreIdentified() {

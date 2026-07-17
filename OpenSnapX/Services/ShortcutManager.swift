@@ -48,22 +48,49 @@ enum ShortcutAction: UInt32, CaseIterable, Sendable {
 
     var defaultShortcut: ShortcutDefinition {
         let keyCode: UInt32
+        let keyLabel: String
         switch self {
-        case .captureText: keyCode = UInt32(kVK_ANSI_2)
-        case .captureDisplay: keyCode = UInt32(kVK_ANSI_3)
-        case .captureRegion: keyCode = UInt32(kVK_ANSI_4)
-        case .captureScrolling: keyCode = UInt32(kVK_ANSI_5)
-        case .colorPicker: keyCode = UInt32(kVK_ANSI_C)
+        case .captureText:
+            keyCode = UInt32(kVK_ANSI_2)
+            keyLabel = "2"
+        case .captureDisplay:
+            keyCode = UInt32(kVK_ANSI_3)
+            keyLabel = "3"
+        case .captureRegion:
+            keyCode = UInt32(kVK_ANSI_4)
+            keyLabel = "4"
+        case .captureScrolling:
+            keyCode = UInt32(kVK_ANSI_6)
+            keyLabel = "6"
+        case .colorPicker:
+            keyCode = UInt32(kVK_ANSI_C)
+            keyLabel = "C"
         }
         return ShortcutDefinition(
             keyCode: keyCode,
             modifiers: UInt32(cmdKey | shiftKey),
-            keyLabel: self == .colorPicker ? "C" : String(rawValue)
+            keyLabel: keyLabel
         )
     }
 }
 
 extension ShortcutDefinition {
+    static func numberRowKeyLabel(for keyCode: UInt32) -> String? {
+        switch Int(keyCode) {
+        case kVK_ANSI_0: "0"
+        case kVK_ANSI_1: "1"
+        case kVK_ANSI_2: "2"
+        case kVK_ANSI_3: "3"
+        case kVK_ANSI_4: "4"
+        case kVK_ANSI_5: "5"
+        case kVK_ANSI_6: "6"
+        case kVK_ANSI_7: "7"
+        case kVK_ANSI_8: "8"
+        case kVK_ANSI_9: "9"
+        default: nil
+        }
+    }
+
     /// Apple's screenshot shortcuts are handled outside Carbon's app hot-key
     /// registry, so an exclusive registration can still fire alongside them.
     var matchesBuiltInScreenshotShortcut: Bool {

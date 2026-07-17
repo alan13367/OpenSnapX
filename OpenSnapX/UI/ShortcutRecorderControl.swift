@@ -121,7 +121,10 @@ final class ShortcutRecorderControl: NSControl {
         return result
     }
 
-    private static func keyLabel(for event: NSEvent) -> String? {
+    static func keyLabel(for event: NSEvent) -> String? {
+        if let keyLabel = ShortcutDefinition.numberRowKeyLabel(for: UInt32(event.keyCode)) {
+            return keyLabel
+        }
         switch Int(event.keyCode) {
         case kVK_Return: return "↩"
         case kVK_Tab: return "⇥"

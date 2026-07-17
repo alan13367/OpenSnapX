@@ -58,8 +58,13 @@ final class SettingsStore {
 
     func shortcut(for action: ShortcutAction) -> ShortcutDefinition {
         guard let data = defaults.data(forKey: shortcutKey(for: action)),
-              let shortcut = try? JSONDecoder().decode(ShortcutDefinition.self, from: data) else {
+              var shortcut = try? JSONDecoder().decode(ShortcutDefinition.self, from: data) else {
             return action.defaultShortcut
+        }
+        if let keyLabel = ShortcutDefinition.numberRowKeyLabel(for: shortcut.keyCode),
+           shortcut.keyLabel != keyLabel {
+            shortcut.keyLabel = keyLabel
+            setShortcut(shortcut, for: action)
         }
         return shortcut
     }

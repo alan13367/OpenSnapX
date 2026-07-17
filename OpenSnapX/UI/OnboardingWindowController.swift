@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 
 @MainActor
 final class OnboardingWindowController: NSWindowController {
@@ -8,9 +9,11 @@ final class OnboardingWindowController: NSWindowController {
     private let onFinish: () -> Void
 
     private let permissionStatus = NSTextField(labelWithString: "")
+    private let appleShortcutGuideDetail = NSTextField(wrappingLabelWithString: "")
     private var shortcutStatusLabels: [ShortcutAction: NSTextField] = [:]
     private var shortcutRecorders: [ShortcutAction: ShortcutRecorderControl] = [:]
     private var permissionPollTimer: Timer?
+    private var shortcutGuidePanel: NSPanel?
 
     init(
         permissionService: ScreenPermissionService,
@@ -24,7 +27,7 @@ final class OnboardingWindowController: NSWindowController {
         self.onFinish = onFinish
 
         let window = NSWindow(
-            contentRect: CGRect(x: 0, y: 0, width: 760, height: 760),
+            contentRect: CGRect(x: 0, y: 0, width: 760, height: 800),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -32,7 +35,7 @@ final class OnboardingWindowController: NSWindowController {
         window.title = "Welcome to OpenSnapX"
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = true
-        window.minSize = NSSize(width: 720, height: 740)
+        window.minSize = NSSize(width: 720, height: 780)
         window.backgroundColor = .windowBackgroundColor
         super.init(window: window)
         window.delegate = self
@@ -146,7 +149,7 @@ final class OnboardingWindowController: NSWindowController {
     private func makeShortcutSection() -> NSView {
         let title = NSTextField(labelWithString: "Keyboard shortcuts")
         title.font = .systemFont(ofSize: 16, weight: .semibold)
-        let detail = NSTextField(wrappingLabelWithString: "Apple’s ⌘⇧3/4/5 actions can run at the same time. To use those combinations only with OpenSnapX, disable their matches in Apple’s Screenshot settings.")
+        let detail = NSTextField(wrappingLabelWithString: "OpenSnapX uses Apple’s screenshot key combinations by default. Turn off only the matching Apple shortcuts to prevent both capture tools from firing.")
         detail.font = .systemFont(ofSize: 11)
         detail.textColor = .secondaryLabelColor
         detail.maximumNumberOfLines = 2
@@ -166,17 +169,13 @@ final class OnboardingWindowController: NSWindowController {
         }
         let shortcuts = verticalStack(rows, spacing: 0)
 
-        let open = NSButton(title: "Apple Screenshot Settings…", target: self, action: #selector(openKeyboardSettings))
-        open.bezelStyle = .rounded
-        open.toolTip = "In Keyboard Shortcuts, select Screenshots and turn off the shortcuts assigned to OpenSnapX"
-        open.setAccessibilityHelp(open.toolTip)
         let reset = NSButton(title: "Restore Shortcut Defaults", target: self, action: #selector(resetShortcuts))
         reset.bezelStyle = .rounded
         let spacer = NSView()
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        let buttons = horizontalStack([spacer, reset, open], spacing: 8)
+        let buttons = horizontalStack([spacer, reset], spacing: 8)
 
-        return verticalStack([heading, shortcuts, buttons], spacing: 9)
+        return verticalStack([heading, shortcuts, makeAppleShortcutGuide(), buttons], spacing: 9)
     }
 
     private func makeFooter() -> NSView {
@@ -209,6 +208,7 @@ final class OnboardingWindowController: NSWindowController {
             guard let self else { return }
             self.settings.setShortcut(shortcut, for: action)
             self.refreshShortcutStatuses(self.registerShortcuts())
+            self.refreshAppleShortcutGuidance()
         }
         recorder.widthAnchor.constraint(equalToConstant: 126).isActive = true
         shortcutRecorders[action] = recorder
@@ -233,6 +233,44 @@ final class OnboardingWindowController: NSWindowController {
         row.edgeInsets = NSEdgeInsets(top: 4, left: 0, bottom: 4, right: 0)
         row.heightAnchor.constraint(equalToConstant: 45).isActive = true
         return row
+    }
+
+    private func makeAppleShortcutGuide() -> NSView {
+        let card = ShortcutSetupCardView()
+
+        let title = NSTextField(labelWithString: "Prevent duplicate captures")
+        title.font = .systemFont(ofSize: 12, weight: .semibold)
+        appleShortcutGuideDetail.font = .systemFont(ofSize: 11)
+        appleShortcutGuideDetail.textColor = .secondaryLabelColor
+        appleShortcutGuideDetail.maximumNumberOfLines = 2
+        let labels = verticalStack([title, appleShortcutGuideDetail], spacing: 2)
+        labels.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+        let open = NSButton(title: "Open Settings…", target: self, action: #selector(openKeyboardSettings))
+        open.bezelStyle = .rounded
+        open.toolTip = "Open Keyboard Shortcuts, then select Screenshots in the left sidebar"
+        open.setAccessibilityHelp(open.toolTip)
+
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let content = horizontalStack([
+            symbolView("camera.viewfinder", size: 17, color: .systemOrange),
+            labels,
+            spacer,
+            animatedGuideArrow(),
+            open
+        ], spacing: 9)
+        content.translatesAutoresizingMaskIntoConstraints = false
+        card.addSubview(content)
+        NSLayoutConstraint.activate([
+            content.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 12),
+            content.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
+            content.topAnchor.constraint(equalTo: card.topAnchor, constant: 9),
+            content.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -9),
+            card.heightAnchor.constraint(greaterThanOrEqualToConstant: 64)
+        ])
+        refreshAppleShortcutGuidance()
+        return card
     }
 
     private func symbolView(_ name: String, size: CGFloat, color: NSColor) -> NSImageView {
@@ -295,6 +333,13 @@ final class OnboardingWindowController: NSWindowController {
 
     @objc private func openKeyboardSettings() {
         permissionService.openKeyboardShortcutSettings()
+        showAppleShortcutGuide()
+    }
+
+    @objc private func dismissShortcutGuide() {
+        shortcutGuidePanel?.orderOut(nil)
+        shortcutGuidePanel?.close()
+        shortcutGuidePanel = nil
     }
 
     @objc private func resetShortcuts() {
@@ -303,6 +348,7 @@ final class OnboardingWindowController: NSWindowController {
         }
         rebuildShortcutRecorders()
         refreshShortcutStatuses(registerShortcuts())
+        refreshAppleShortcutGuidance()
     }
 
     @objc private func finish() {
@@ -357,10 +403,195 @@ final class OnboardingWindowController: NSWindowController {
             recorder.shortcut = settings.shortcut(for: action)
         }
     }
+
+    private func refreshAppleShortcutGuidance() {
+        let shortcuts = matchingAppleScreenshotShortcuts
+        if shortcuts.isEmpty {
+            appleShortcutGuideDetail.stringValue = "Your current shortcuts do not overlap Apple’s screenshot shortcuts."
+        } else {
+            appleShortcutGuideDetail.stringValue = "Select Screenshots, then uncheck \(formattedShortcutList(shortcuts))."
+        }
+    }
+
+    private var matchingAppleScreenshotShortcuts: [String] {
+        var seen: Set<String> = []
+        return ShortcutAction.presentationOrder
+            .map { settings.shortcut(for: $0) }
+            .filter(\.matchesBuiltInScreenshotShortcut)
+            .sorted { $0.keyLabel.localizedStandardCompare($1.keyLabel) == .orderedAscending }
+            .map(\.displayString)
+            .filter { seen.insert($0).inserted }
+    }
+
+    private func formattedShortcutList(_ shortcuts: [String]) -> String {
+        switch shortcuts.count {
+        case 0: return ""
+        case 1: return shortcuts[0]
+        case 2: return shortcuts.joined(separator: " and ")
+        default: return shortcuts.dropLast().joined(separator: ", ") + ", and " + (shortcuts.last ?? "")
+        }
+    }
+
+    private func animatedGuideArrow() -> NSImageView {
+        let arrow = symbolView("arrow.left", size: 14, color: .systemOrange)
+        arrow.setAccessibilityElement(false)
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return arrow }
+        arrow.wantsLayer = true
+        let motion = CABasicAnimation(keyPath: "transform.translation.x")
+        motion.fromValue = 3
+        motion.toValue = -3
+        motion.duration = 0.65
+        motion.autoreverses = true
+        motion.repeatCount = .infinity
+        motion.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        arrow.layer?.add(motion, forKey: "guideMotion")
+        return arrow
+    }
+
+    private func showAppleShortcutGuide() {
+        dismissShortcutGuide()
+
+        let panelSize = NSSize(width: 392, height: 192)
+        let panel = NSPanel(
+            contentRect: CGRect(origin: .zero, size: panelSize),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.level = .floating
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.hidesOnDeactivate = false
+        panel.becomesKeyOnlyIfNeeded = true
+        panel.isMovableByWindowBackground = true
+
+        let effect = NSVisualEffectView(frame: CGRect(origin: .zero, size: panelSize))
+        effect.material = .hudWindow
+        effect.state = .active
+        effect.wantsLayer = true
+        effect.layer?.cornerRadius = 16
+        effect.layer?.masksToBounds = true
+
+        let title = NSTextField(labelWithString: "Finish in Apple’s Screenshot settings")
+        title.font = .systemFont(ofSize: 14, weight: .semibold)
+        let close = NSButton(
+            image: NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: "Dismiss guide") ?? NSImage(),
+            target: self,
+            action: #selector(dismissShortcutGuide)
+        )
+        close.isBordered = false
+        close.contentTintColor = .secondaryLabelColor
+        close.setAccessibilityLabel("Dismiss shortcut guide")
+        let titleSpacer = NSView()
+        titleSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let header = horizontalStack([title, titleSpacer, close], spacing: 8)
+
+        let firstStep = floatingGuideStep(
+            number: "1",
+            title: "Select Screenshots",
+            detail: "in the left sidebar of Keyboard Shortcuts",
+            accessory: animatedGuideArrow()
+        )
+        let shortcuts = matchingAppleScreenshotShortcuts
+        let secondDetail = shortcuts.isEmpty
+            ? "No matching Apple shortcuts need to be disabled."
+            : "Uncheck only the Apple rows showing \(formattedShortcutList(shortcuts))."
+        let secondStep = floatingGuideStep(
+            number: "2",
+            title: "Turn off the matching boxes",
+            detail: secondDetail
+        )
+        let note = NSTextField(wrappingLabelWithString: "Other Apple shortcuts—including ⌃ Control variants—can stay enabled unless you assigned the same combination in OpenSnapX.")
+        note.font = .systemFont(ofSize: 10)
+        note.textColor = .tertiaryLabelColor
+        note.maximumNumberOfLines = 2
+
+        let root = verticalStack([header, firstStep, secondStep, note], spacing: 9)
+        root.translatesAutoresizingMaskIntoConstraints = false
+        effect.addSubview(root)
+        NSLayoutConstraint.activate([
+            root.leadingAnchor.constraint(equalTo: effect.leadingAnchor, constant: 16),
+            root.trailingAnchor.constraint(equalTo: effect.trailingAnchor, constant: -14),
+            root.topAnchor.constraint(equalTo: effect.topAnchor, constant: 14),
+            root.bottomAnchor.constraint(lessThanOrEqualTo: effect.bottomAnchor, constant: -12)
+        ])
+        panel.contentView = effect
+
+        let screen = window?.screen ?? DisplayGeometry.screen(containing: NSEvent.mouseLocation) ?? NSScreen.main
+        if let visibleFrame = screen?.visibleFrame {
+            panel.setFrameOrigin(CGPoint(
+                x: visibleFrame.maxX - panelSize.width - 22,
+                y: visibleFrame.maxY - panelSize.height - 22
+            ))
+        }
+        shortcutGuidePanel = panel
+        panel.orderFrontRegardless()
+    }
+
+    private func floatingGuideStep(number: String, title: String, detail: String, accessory: NSView? = nil) -> NSView {
+        let numberLabel = NSTextField(labelWithString: number)
+        numberLabel.font = .systemFont(ofSize: 11, weight: .bold)
+        numberLabel.alignment = .center
+        numberLabel.textColor = .white
+        numberLabel.backgroundColor = .systemBlue
+        numberLabel.drawsBackground = true
+        numberLabel.wantsLayer = true
+        numberLabel.layer?.cornerRadius = 10
+        numberLabel.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            numberLabel.widthAnchor.constraint(equalToConstant: 20),
+            numberLabel.heightAnchor.constraint(equalToConstant: 20)
+        ])
+
+        let titleLabel = NSTextField(labelWithString: title)
+        titleLabel.font = .systemFont(ofSize: 12, weight: .semibold)
+        let detailLabel = NSTextField(labelWithString: detail)
+        detailLabel.font = .systemFont(ofSize: 11)
+        detailLabel.textColor = .secondaryLabelColor
+        detailLabel.lineBreakMode = .byTruncatingTail
+        let labels = verticalStack([titleLabel, detailLabel], spacing: 1)
+        labels.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let row = horizontalStack([numberLabel, labels, spacer] + (accessory.map { [$0] } ?? []), spacing: 9)
+        row.alignment = .centerY
+        return row
+    }
 }
 
 extension OnboardingWindowController: NSWindowDelegate {
+    func windowDidBecomeKey(_ notification: Notification) {
+        if shortcutGuidePanel != nil { dismissShortcutGuide() }
+    }
+
     func windowWillClose(_ notification: Notification) {
         stopPermissionPolling()
+        dismissShortcutGuide()
+    }
+}
+
+@MainActor
+private final class ShortcutSetupCardView: NSView {
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.cornerRadius = 12
+        updateColors()
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateColors()
+    }
+
+    private func updateColors() {
+        layer?.backgroundColor = NSColor.systemOrange.withAlphaComponent(0.07).cgColor
+        layer?.borderColor = NSColor.systemOrange.withAlphaComponent(0.28).cgColor
+        layer?.borderWidth = 1
     }
 }
