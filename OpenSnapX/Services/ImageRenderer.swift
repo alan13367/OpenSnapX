@@ -12,7 +12,7 @@ struct CoreGraphicsImageRenderer: ImageRenderer {
     private let ciContext = CIContext(options: [.cacheIntermediates: false])
 
     func render(source: ImagePayload, session: CaptureSession, options: ExportOptions) throws -> ImagePayload {
-        let sourceImage = source.image
+        let sourceImage = try ImageCodec.resized(source.image, to: session.manifest.outputPixelSize)
         let cropAnnotation = session.annotations.last(where: { $0.kind == .crop })
         let sourceBounds = CGRect(x: 0, y: 0, width: sourceImage.width, height: sourceImage.height)
         let crop = cropAnnotation?.frame.cgRect.intersection(sourceBounds).integral ?? sourceBounds

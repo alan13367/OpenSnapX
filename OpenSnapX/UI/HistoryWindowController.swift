@@ -210,7 +210,7 @@ private final class HistoryItem: NSCollectionViewItem {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .short
         titleLabel.stringValue = formatter.localizedString(for: session.manifest.createdAt, relativeTo: Date())
-        detailLabel.stringValue = "\(session.manifest.pixelWidth) × \(session.manifest.pixelHeight)"
+        detailLabel.stringValue = "\(session.manifest.outputPixelWidth) × \(session.manifest.outputPixelHeight)"
         detailLabel.textColor = .secondaryLabelColor
         if let image {
             thumbnailView.image = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))

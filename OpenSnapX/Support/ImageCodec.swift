@@ -57,16 +57,15 @@ enum ImageCodec {
         return image
     }
 
-    static func thumbnail(from image: CGImage, maximumPixelSize: Int = 480) throws -> CGImage {
-        guard maximumPixelSize > 0 else {
-            throw OpenSnapXError.captureFailed("Could not create a history thumbnail.")
+    static func resized(_ image: CGImage, to pixelSize: CGSize) throws -> CGImage {
+        guard pixelSize.width.isFinite, pixelSize.height.isFinite,
+              pixelSize.width >= 1, pixelSize.height >= 1,
+              pixelSize.width <= CGFloat(Int.max), pixelSize.height <= CGFloat(Int.max) else {
+            throw OpenSnapXError.captureFailed("The requested image size is invalid.")
         }
-        let largestDimension = max(image.width, image.height)
-        guard largestDimension > maximumPixelSize else { return image }
-
-        let scale = Double(maximumPixelSize) / Double(largestDimension)
-        let width = max(1, Int((Double(image.width) * scale).rounded()))
-        let height = max(1, Int((Double(image.height) * scale).rounded()))
+        let width = Int(pixelSize.width.rounded())
+        let height = Int(pixelSize.height.rounded())
+        guard width != image.width || height != image.height else { return image }
         guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
               let context = CGContext(
                 data: nil,
@@ -77,14 +76,29 @@ enum ImageCodec {
                 space: colorSpace,
                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
               ) else {
-            throw OpenSnapXError.captureFailed("Could not create a history thumbnail.")
+            throw OpenSnapXError.captureFailed("Could not resize the image.")
         }
         context.interpolationQuality = .high
         context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
-        guard let thumbnail = context.makeImage() else {
+        guard let resized = context.makeImage() else {
+            throw OpenSnapXError.captureFailed("Could not finish resizing the image.")
+        }
+        return resized
+    }
+
+    static func thumbnail(from image: CGImage, maximumPixelSize: Int = 480) throws -> CGImage {
+        guard maximumPixelSize > 0 else {
             throw OpenSnapXError.captureFailed("Could not create a history thumbnail.")
         }
-        return thumbnail
+        let largestDimension = max(image.width, image.height)
+        guard largestDimension > maximumPixelSize else { return image }
+
+        let scale = Double(maximumPixelSize) / Double(largestDimension)
+        let size = CGSize(
+            width: max(1, Int((Double(image.width) * scale).rounded())),
+            height: max(1, Int((Double(image.height) * scale).rounded()))
+        )
+        return try resized(image, to: size)
     }
 }
 

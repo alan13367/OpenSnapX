@@ -90,14 +90,34 @@ final class ImageRendererTests: XCTestCase {
         XCTAssertGreaterThan(yellowPixels, 300)
     }
 
-    func testBackdropIncreasesCanvasSize() throws {
+    func testResizeConfigurationChangesRenderedPixelDimensions() throws {
+        let source = try solidImage(width: 100, height: 60)
+        var manifest = CaptureManifest(
+            id: UUID(), createdAt: .now, modifiedAt: .now, captureMode: .region,
+            pixelWidth: 100, pixelHeight: 60, displayScale: 2
+        )
+        manifest.resize = ImageResizeConfiguration(pixelWidth: 50, pixelHeight: 30)
+        let session = CaptureSession(manifest: manifest, annotations: [], ocrResults: [])
+
+        let output = try CoreGraphicsImageRenderer().render(
+            source: ImagePayload(image: source),
+            session: session,
+            options: ExportOptions()
+        ).image
+
+        XCTAssertEqual(output.width, 50)
+        XCTAssertEqual(output.height, 30)
+    }
+
+    func testBackdropIsAppliedAfterImageResize() throws {
         let source = try solidImage(width: 100, height: 60)
         var manifest = CaptureManifest(id: UUID(), createdAt: .now, modifiedAt: .now, captureMode: .region, pixelWidth: 100, pixelHeight: 60, displayScale: 1)
+        manifest.resize = ImageResizeConfiguration(pixelWidth: 50, pixelHeight: 30)
         manifest.backdrop.isEnabled = true
         manifest.backdrop.padding = 20
         let session = CaptureSession(manifest: manifest, annotations: [], ocrResults: [])
         let output = try CoreGraphicsImageRenderer().render(source: ImagePayload(image: source), session: session, options: ExportOptions()).image
-        XCTAssertEqual(output.width, 140)
-        XCTAssertEqual(output.height, 100)
+        XCTAssertEqual(output.width, 90)
+        XCTAssertEqual(output.height, 70)
     }
 }

@@ -186,6 +186,11 @@ struct BackdropConfiguration: Codable, Hashable, Sendable {
     var aspect: BackdropAspect = .automatic
 }
 
+struct ImageResizeConfiguration: Codable, Hashable, Sendable {
+    var pixelWidth: Int
+    var pixelHeight: Int
+}
+
 struct OCRResult: Codable, Identifiable, Hashable, Sendable {
     var id = UUID()
     var text: String
@@ -206,6 +211,13 @@ struct CaptureManifest: Codable, Identifiable, Sendable {
     var displayScale: Double
     var sourceRect: CanvasRect?
     var backdrop = BackdropConfiguration()
+    var resize: ImageResizeConfiguration?
+
+    var outputPixelWidth: Int { resize?.pixelWidth ?? pixelWidth }
+    var outputPixelHeight: Int { resize?.pixelHeight ?? pixelHeight }
+    var outputPixelSize: CGSize {
+        CGSize(width: outputPixelWidth, height: outputPixelHeight)
+    }
 }
 
 struct CaptureSession: Codable, Identifiable, Sendable {

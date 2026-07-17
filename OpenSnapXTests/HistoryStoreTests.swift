@@ -32,6 +32,23 @@ final class HistoryStoreTests: XCTestCase {
         XCTAssertTrue(afterDelete.isEmpty)
     }
 
+    func testResizePersistsWithoutReplacingOriginalSource() async throws {
+        let store = LocalHistoryStore(rootURL: root)
+        let result = CaptureResult(image: try solidImage(width: 120, height: 80), mode: .region)
+        var session = try await store.create(from: result)
+        session.manifest.resize = ImageResizeConfiguration(pixelWidth: 60, pixelHeight: 40)
+
+        try await store.save(session)
+        let (loaded, source) = try await store.load(id: result.id)
+        let thumbnail = try await store.thumbnail(id: result.id).image
+
+        XCTAssertEqual(loaded.manifest.outputPixelSize, CGSize(width: 60, height: 40))
+        XCTAssertEqual(source.image.width, 120)
+        XCTAssertEqual(source.image.height, 80)
+        XCTAssertEqual(thumbnail.width, 60)
+        XCTAssertEqual(thumbnail.height, 40)
+    }
+
     func testThumbnailPreservesAspectRatioWithinMaximumSize() throws {
         let thumbnail = try ImageCodec.thumbnail(from: solidImage(width: 1_200, height: 800), maximumPixelSize: 480)
         XCTAssertEqual(thumbnail.width, 480)

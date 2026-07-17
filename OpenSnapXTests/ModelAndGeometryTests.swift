@@ -67,6 +67,33 @@ final class ModelAndGeometryTests: XCTestCase {
         XCTAssertEqual(distance, 6, accuracy: 0.001)
     }
 
+    func testImageResizeScalesEditableAnnotationGeometryAndStyles() {
+        let textStyle = RichTextStyle(fontSize: 20)
+        let annotation = Annotation(
+            kind: .text,
+            frame: CanvasRect(CGRect(x: 10, y: 20, width: 80, height: 40)),
+            points: [CanvasPoint(CGPoint(x: 10, y: 20)), CanvasPoint(CGPoint(x: 90, y: 60))],
+            text: "Resize",
+            richText: RichTextDocument(
+                string: "Resize",
+                runs: [RichTextRun(location: 0, length: 6, style: textStyle)]
+            ),
+            style: AnnotationStyle(lineWidth: 8, fontSize: 20)
+        )
+
+        let resized = ImageResizeGeometry.scaledAnnotations(
+            [annotation],
+            from: CGSize(width: 100, height: 100),
+            to: CGSize(width: 50, height: 50)
+        )[0]
+
+        XCTAssertEqual(resized.frame.cgRect, CGRect(x: 5, y: 10, width: 40, height: 20))
+        XCTAssertEqual(resized.points.map(\.cgPoint), [CGPoint(x: 5, y: 10), CGPoint(x: 45, y: 30)])
+        XCTAssertEqual(resized.style.lineWidth, 4, accuracy: 0.001)
+        XCTAssertEqual(resized.style.fontSize, 10, accuracy: 0.001)
+        XCTAssertEqual(resized.richText?.runs[0].style.fontSize, 10)
+    }
+
     func testCaptureResultBuildsImmediateInMemorySession() throws {
         let createdAt = Date(timeIntervalSince1970: 1_700_000_000)
         let sourceRect = CanvasRect(CGRect(x: 10, y: 20, width: 320, height: 180))
@@ -86,6 +113,8 @@ final class ModelAndGeometryTests: XCTestCase {
         XCTAssertEqual(session.manifest.pixelHeight, 180)
         XCTAssertEqual(session.manifest.displayScale, 2)
         XCTAssertEqual(session.manifest.sourceRect, sourceRect)
+        XCTAssertEqual(session.manifest.outputPixelSize, CGSize(width: 320, height: 180))
+        XCTAssertNil(session.manifest.resize)
         XCTAssertTrue(session.annotations.isEmpty)
         XCTAssertTrue(session.ocrResults.isEmpty)
     }
@@ -140,10 +169,29 @@ final class ModelAndGeometryTests: XCTestCase {
             id: UUID(), createdAt: .now, modifiedAt: .now, captureMode: .region,
             pixelWidth: 800, pixelHeight: 600, displayScale: 2
         )
-        let session = CaptureSession(manifest: manifest, annotations: [annotation], ocrResults: [])
+        var resizedManifest = manifest
+        resizedManifest.resize = ImageResizeConfiguration(pixelWidth: 400, pixelHeight: 300)
+        let session = CaptureSession(manifest: resizedManifest, annotations: [annotation], ocrResults: [])
         let data = try JSONEncoder().encode(session)
         let decoded = try JSONDecoder().decode(CaptureSession.self, from: data)
         XCTAssertEqual(decoded.manifest.schemaVersion, 1)
+        XCTAssertEqual(decoded.manifest.outputPixelSize, CGSize(width: 400, height: 300))
         XCTAssertEqual(decoded.annotations, [annotation])
+    }
+
+    func testManifestWithoutResizeConfigurationRemainsDecodable() throws {
+        let manifest = CaptureManifest(
+            id: UUID(), createdAt: .now, modifiedAt: .now, captureMode: .region,
+            pixelWidth: 800, pixelHeight: 600, displayScale: 2
+        )
+        let encoded = try JSONEncoder().encode(manifest)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        object.removeValue(forKey: "resize")
+        let legacyData = try JSONSerialization.data(withJSONObject: object)
+
+        let decoded = try JSONDecoder().decode(CaptureManifest.self, from: legacyData)
+
+        XCTAssertNil(decoded.resize)
+        XCTAssertEqual(decoded.outputPixelSize, CGSize(width: 800, height: 600))
     }
 }

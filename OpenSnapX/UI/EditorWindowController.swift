@@ -69,6 +69,11 @@ private struct EditorEdits {
     var isOCRSelectionActive = false
 }
 
+private struct EditorImageGeometry {
+    var annotations: [Annotation]
+    var resize: ImageResizeConfiguration?
+}
+
 @MainActor
 final class EditorWindowController: NSWindowController, NSWindowDelegate {
     private var session: CaptureSession
@@ -86,8 +91,10 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     private let widthSlider = NSSlider(value: 15, minValue: 1, maxValue: 28, target: nil, action: nil)
     private let colorLabel = NSTextField(labelWithString: "#FF0000")
     private let widthLabel = NSTextField(labelWithString: "15 pt")
+    private let imageSizeLabel = NSTextField(labelWithString: "")
     private let zoomLabel = NSTextField(labelWithString: "100%")
     private var colorPalettePopover: NSPopover?
+    private var imageSizePopover: NSPopover?
     private var toolButtons: [EditorTool: EditorChromeButton] = [:]
     private var moreToolsButton: EditorChromeButton?
     private var persistTask: Task<Void, Never>?
@@ -99,6 +106,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     private var isDiscardingCapture = false
     private weak var editorBar: NSView?
     private var displayedCanvasMagnification: CGFloat = 1
+    private var showsLogicalImageSize = true
 
     init(
         session: CaptureSession,
@@ -113,6 +121,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     ) {
         self.session = session
         sourceImage = image
+        showsLogicalImageSize = session.manifest.resize == nil
         self.historyStore = historyStore
         self.renderer = renderer
         self.ocrService = ocrService
@@ -120,7 +129,12 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         self.initialPersistence = initialPersistence
         self.onSessionSaved = onSessionSaved
         self.onDiscardCapture = onDiscardCapture
-        canvas = EditorCanvasView(image: image, annotations: session.annotations, ocrResults: session.ocrResults)
+        canvas = EditorCanvasView(
+            image: image,
+            canvasSize: session.manifest.outputPixelSize,
+            annotations: session.annotations,
+            ocrResults: session.ocrResults
+        )
         let window = NSWindow(
             contentRect: CGRect(x: 0, y: 0, width: 1080, height: 720),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -225,7 +239,6 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         scrollView.contentView = clipView
         scrollView.backgroundColor = canvasBackground
         scrollView.translatesAutoresizingMaskIntoConstraints = false
-        canvas.frame = CGRect(x: 0, y: 0, width: sourceImage.width, height: sourceImage.height)
         scrollView.documentView = canvas
         root.addArrangedSubview(scrollView)
 
@@ -248,8 +261,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
             guard let self else { return }
             content.layoutSubtreeIfNeeded()
             let fit = min(
-                self.scrollView.contentSize.width / CGFloat(self.sourceImage.width),
-                self.scrollView.contentSize.height / CGFloat(self.sourceImage.height),
+                self.scrollView.contentSize.width / self.canvas.frame.width,
+                self.scrollView.contentSize.height / self.canvas.frame.height,
                 1
             )
             self.scrollView.magnification = max(0.1, fit * 0.92)
@@ -385,13 +398,17 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     private func makeInfoStrip() -> NSView {
         let colorGroup = makeColorInfo()
         let widthGroup = makeWidthInfo()
-        let scale = max(1, session.manifest.displayScale)
-        let width = CGFloat(sourceImage.width) / scale
-        let height = CGFloat(sourceImage.height) / scale
-        let sizeGroup = metadataGroup(
-            value: "\(formattedDimension(width))×\(formattedDimension(height))pt",
-            caption: "Image size"
-        )
+        let sizeGroup = metadataGroup(valueLabel: imageSizeLabel, caption: "Image size")
+        sizeGroup.setAccessibilityElement(true)
+        sizeGroup.setAccessibilityRole(.button)
+        sizeGroup.setAccessibilityLabel("Image size")
+        sizeGroup.setAccessibilityHelp("Click to resize the screenshot")
+        sizeGroup.toolTip = "Resize screenshot"
+        sizeGroup.addGestureRecognizer(NSClickGestureRecognizer(
+            target: self,
+            action: #selector(showImageSizePopover(_:))
+        ))
+        updateImageSizeLabel()
         let zoomGroup = metadataGroup(valueLabel: zoomLabel, caption: "Zoom")
 
         let stack = NSStackView(views: [
@@ -617,9 +634,31 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .maxY)
     }
 
-    private func metadataGroup(value: String, caption: String) -> NSView {
-        let label = NSTextField(labelWithString: value)
-        return metadataGroup(valueLabel: label, caption: caption)
+    @objc private func showImageSizePopover(_ sender: NSClickGestureRecognizer) {
+        guard let anchor = sender.view else { return }
+        imageSizePopover?.close()
+
+        let controller = ImageResizePopoverController(
+            originalPixelSize: CGSize(width: sourceImage.width, height: sourceImage.height),
+            currentPixelSize: session.manifest.outputPixelSize,
+            displayScale: max(1, session.manifest.displayScale),
+            showsLogicalSize: showsLogicalImageSize,
+            onLogicalSizeChanged: { [weak self] showsLogicalSize in
+                self?.showsLogicalImageSize = showsLogicalSize
+                self?.updateImageSizeLabel()
+            },
+            onResize: { [weak self] size in
+                guard let self else { return }
+                self.applyImageResize(to: size)
+                self.imageSizePopover?.performClose(nil)
+            }
+        )
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.animates = true
+        popover.contentViewController = controller
+        imageSizePopover = popover
+        popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .maxY)
     }
 
     private func metadataGroup(valueLabel: NSTextField, caption: String) -> NSView {
@@ -746,6 +785,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         guard let annotation,
               EditorTool(rawValue: annotation.kind.rawValue)?.usesStrokeWidth == true else { return }
         colorWell.color = annotation.style.strokeColor.nsColor
+        widthSlider.maxValue = max(28, annotation.style.lineWidth)
         widthSlider.doubleValue = annotation.style.lineWidth
         updateStyleLabels()
     }
@@ -802,6 +842,19 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
+    private func updateImageSizeLabel() {
+        let width = CGFloat(session.manifest.outputPixelWidth)
+        let height = CGFloat(session.manifest.outputPixelHeight)
+        if showsLogicalImageSize {
+            let scale = max(1, session.manifest.displayScale)
+            imageSizeLabel.stringValue = "\(formattedDimension(width / scale))×\(formattedDimension(height / scale))pt"
+        } else {
+            imageSizeLabel.stringValue = "\(Int(width))×\(Int(height))px"
+        }
+        imageSizeLabel.toolTip = "Resize screenshot"
+        imageSizeLabel.setAccessibilityLabel("Image size \(imageSizeLabel.stringValue). Click to resize.")
+    }
+
     private func hexString(for color: NSColor) -> String {
         guard let color = color.usingColorSpace(.sRGB) else { return "#FF0000" }
         return String(
@@ -821,6 +874,82 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         canvas.style.lineWidth = widthSlider.doubleValue
         canvas.style.fillColor = canvas.tool == .redact ? .black : nil
         canvas.style.opacity = canvas.tool == .highlighter ? 0.38 : 1
+    }
+
+    private func applyImageResize(to requestedSize: CGSize) {
+        canvas.commitTextEditing()
+        let targetSize = CGSize(
+            width: max(1, Int(requestedSize.width.rounded())),
+            height: max(1, Int(requestedSize.height.rounded()))
+        )
+        let currentSize = session.manifest.outputPixelSize
+        guard targetSize != currentSize else { return }
+
+        let previous = EditorImageGeometry(
+            annotations: session.annotations,
+            resize: session.manifest.resize
+        )
+        let originalSize = CGSize(width: sourceImage.width, height: sourceImage.height)
+        let resize = targetSize == originalSize
+            ? nil
+            : ImageResizeConfiguration(
+                pixelWidth: Int(targetSize.width),
+                pixelHeight: Int(targetSize.height)
+            )
+        let annotations = ImageResizeGeometry.scaledAnnotations(
+            session.annotations,
+            from: currentSize,
+            to: targetSize
+        )
+        window?.undoManager?.registerUndo(withTarget: self) { target in
+            target.replaceImageGeometry(previous)
+        }
+        window?.undoManager?.setActionName("Resize Image")
+        // Resizing is specified in physical pixels, so show that same value in
+        // the editor after applying it. Users can switch back to logical points.
+        showsLogicalImageSize = false
+        applyImageGeometry(EditorImageGeometry(annotations: annotations, resize: resize))
+        showTransientMessage(
+            "Resized to \(Int(targetSize.width)) × \(Int(targetSize.height)) px",
+            style: .success
+        )
+    }
+
+    private func replaceImageGeometry(_ geometry: EditorImageGeometry) {
+        let current = EditorImageGeometry(
+            annotations: session.annotations,
+            resize: session.manifest.resize
+        )
+        window?.undoManager?.registerUndo(withTarget: self) { target in
+            target.replaceImageGeometry(current)
+        }
+        window?.undoManager?.setActionName("Resize Image")
+        applyImageGeometry(geometry)
+    }
+
+    private func applyImageGeometry(_ geometry: EditorImageGeometry) {
+        session.annotations = geometry.annotations
+        session.manifest.resize = geometry.resize
+        canvas.resize(
+            to: session.manifest.outputPixelSize,
+            annotations: geometry.annotations
+        )
+        updateImageSizeLabel()
+        fitCanvasAfterResize()
+        schedulePersist()
+    }
+
+    private func fitCanvasAfterResize() {
+        scrollView.layoutSubtreeIfNeeded()
+        let fit = min(
+            scrollView.contentSize.width / canvas.frame.width,
+            scrollView.contentSize.height / canvas.frame.height,
+            1
+        )
+        scrollView.magnification = min(scrollView.maxMagnification, max(scrollView.minMagnification, fit * 0.92))
+        scrollView.contentView.scroll(to: scrollView.contentView.bounds.origin)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        updateZoomLabel()
     }
 
     private func annotationsChanged(_ annotations: [Annotation]) {
@@ -962,7 +1091,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         }
         let controller = BackdropPanelController(
             configuration: session.manifest.backdrop,
-            image: sourceImage
+            image: sourceImage,
+            imagePixelSize: session.manifest.outputPixelSize
         ) { [weak self] configuration in
             self?.session.manifest.backdrop = configuration
             self?.schedulePersist()
@@ -1264,6 +1394,249 @@ private final class CenteredClipView: NSClipView {
     }
 }
 
+@MainActor
+private final class ImageResizePopoverController: NSViewController, NSTextFieldDelegate {
+    private static let presetScales: [CGFloat] = [0.25, 1.0 / 3.0, 0.5, 1, 2, 4]
+    private static let maximumDimension = 200_000
+    private static let maximumPixelCount = 100_000_000
+
+    private let originalPixelSize: CGSize
+    private let currentPixelSize: CGSize
+    private let displayScale: CGFloat
+    private let initialShowsLogicalSize: Bool
+    private let onLogicalSizeChanged: (Bool) -> Void
+    private let onResize: (CGSize) -> Void
+    private let logicalSizeSwitch = NSSwitch()
+    private let presets = NSSegmentedControl(
+        labels: ["25%", "33%", "50%", "1×", "2×", "4×"],
+        trackingMode: .selectOne,
+        target: nil,
+        action: nil
+    )
+    private let widthField = NSTextField()
+    private let heightField = NSTextField()
+    private let constrainProportions = NSButton(
+        checkboxWithTitle: "Constrain proportions",
+        target: nil,
+        action: nil
+    )
+    private let errorLabel = NSTextField(labelWithString: "")
+    private let numberFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.allowsFloats = false
+        formatter.minimum = 1
+        formatter.usesGroupingSeparator = true
+        return formatter
+    }()
+    private var isUpdatingFields = false
+
+    init(
+        originalPixelSize: CGSize,
+        currentPixelSize: CGSize,
+        displayScale: CGFloat,
+        showsLogicalSize: Bool,
+        onLogicalSizeChanged: @escaping (Bool) -> Void,
+        onResize: @escaping (CGSize) -> Void
+    ) {
+        self.originalPixelSize = originalPixelSize
+        self.currentPixelSize = currentPixelSize
+        self.displayScale = displayScale
+        initialShowsLogicalSize = showsLogicalSize
+        self.onLogicalSizeChanged = onLogicalSizeChanged
+        self.onResize = onResize
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func loadView() {
+        let content = NSView(frame: CGRect(x: 0, y: 0, width: 390, height: 252))
+        view = content
+        preferredContentSize = content.frame.size
+
+        let logicalTitle = NSTextField(labelWithString: "Show Size in Logical Points")
+        logicalTitle.font = .systemFont(ofSize: 13, weight: .semibold)
+        logicalSizeSwitch.state = initialShowsLogicalSize ? .on : .off
+        logicalSizeSwitch.target = self
+        logicalSizeSwitch.action = #selector(logicalSizeChanged)
+        logicalSizeSwitch.toolTip = "Switch the editor size between logical points and physical pixels"
+        logicalSizeSwitch.setAccessibilityLabel("Show image size in logical points")
+        let logicalSpacer = NSView()
+        logicalSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let logicalRow = NSStackView(views: [logicalTitle, logicalSpacer, logicalSizeSwitch])
+        logicalRow.orientation = .horizontal
+        logicalRow.alignment = .centerY
+
+        let scaleDescription: String
+        if displayScale == 1 {
+            scaleDescription = "One logical point equals one physical pixel for this capture."
+        } else {
+            scaleDescription = "One logical point equals \(String(format: "%g", displayScale)) physical pixels for this capture."
+        }
+        let explanation = NSTextField(wrappingLabelWithString: scaleDescription)
+        explanation.textColor = .secondaryLabelColor
+        explanation.maximumNumberOfLines = 2
+
+        let separator = NSBox()
+        separator.boxType = .separator
+
+        let resizeTitle = NSTextField(labelWithString: "Resize Image")
+        resizeTitle.font = .systemFont(ofSize: 13, weight: .semibold)
+
+        presets.target = self
+        presets.action = #selector(presetChanged)
+        presets.segmentStyle = .rounded
+        presets.setAccessibilityLabel("Resize presets")
+        selectMatchingPreset()
+
+        configureDimensionField(widthField, label: "Image width in pixels")
+        configureDimensionField(heightField, label: "Image height in pixels")
+        setDimensionFields(to: currentPixelSize)
+
+        let times = NSTextField(labelWithString: "×")
+        times.textColor = .secondaryLabelColor
+        let pixels = NSTextField(labelWithString: "px")
+        pixels.textColor = .secondaryLabelColor
+        let resizeButton = NSButton(title: "Resize", target: self, action: #selector(resize))
+        resizeButton.bezelStyle = .rounded
+        resizeButton.keyEquivalent = "\r"
+        resizeButton.toolTip = "Apply the new image size"
+        resizeButton.setAccessibilityLabel("Resize image")
+        let fieldsRow = NSStackView(views: [widthField, times, heightField, pixels, resizeButton])
+        fieldsRow.orientation = .horizontal
+        fieldsRow.alignment = .centerY
+        fieldsRow.spacing = 8
+
+        constrainProportions.state = .on
+        constrainProportions.toolTip = "Keep the screenshot's original aspect ratio"
+        constrainProportions.setAccessibilityLabel("Constrain image proportions")
+
+        errorLabel.font = .systemFont(ofSize: 11)
+        errorLabel.textColor = .systemRed
+        errorLabel.lineBreakMode = .byTruncatingTail
+
+        let stack = NSStackView(views: [
+            logicalRow, explanation, separator, resizeTitle, presets,
+            fieldsRow, constrainProportions, errorLabel
+        ])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 9
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -16),
+            stack.topAnchor.constraint(equalTo: content.topAnchor, constant: 14),
+            stack.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -12),
+            logicalRow.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            explanation.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            separator.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            presets.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            fieldsRow.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            errorLabel.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            widthField.widthAnchor.constraint(equalToConstant: 94),
+            heightField.widthAnchor.constraint(equalToConstant: 94)
+        ])
+    }
+
+    private func configureDimensionField(_ field: NSTextField, label: String) {
+        field.formatter = numberFormatter
+        field.alignment = .right
+        field.delegate = self
+        field.target = self
+        field.action = #selector(dimensionEditingEnded)
+        field.toolTip = label
+        field.setAccessibilityLabel(label)
+    }
+
+    private func setDimensionFields(to size: CGSize) {
+        isUpdatingFields = true
+        widthField.stringValue = numberFormatter.string(from: NSNumber(value: Int(size.width.rounded())))
+            ?? String(Int(size.width.rounded()))
+        heightField.stringValue = numberFormatter.string(from: NSNumber(value: Int(size.height.rounded())))
+            ?? String(Int(size.height.rounded()))
+        isUpdatingFields = false
+    }
+
+    private func selectMatchingPreset() {
+        presets.selectedSegment = Self.presetScales.firstIndex { scale in
+            presetSize(for: scale) == currentPixelSize
+        } ?? -1
+    }
+
+    private func presetSize(for scale: CGFloat) -> CGSize {
+        CGSize(
+            width: max(1, Int((originalPixelSize.width * scale).rounded())),
+            height: max(1, Int((originalPixelSize.height * scale).rounded()))
+        )
+    }
+
+    private func pixelValue(in field: NSTextField) -> Int? {
+        guard let number = numberFormatter.number(from: field.stringValue) else { return nil }
+        let value = number.intValue
+        return value > 0 ? value : nil
+    }
+
+    private func updateConstrainedDimension(changedField: NSTextField) {
+        guard !isUpdatingFields, constrainProportions.state == .on else { return }
+        isUpdatingFields = true
+        if changedField === widthField, let width = pixelValue(in: widthField) {
+            let height = max(1, Int((CGFloat(width) * originalPixelSize.height / originalPixelSize.width).rounded()))
+            heightField.stringValue = numberFormatter.string(from: NSNumber(value: height)) ?? String(height)
+        } else if changedField === heightField, let height = pixelValue(in: heightField) {
+            let width = max(1, Int((CGFloat(height) * originalPixelSize.width / originalPixelSize.height).rounded()))
+            widthField.stringValue = numberFormatter.string(from: NSNumber(value: width)) ?? String(width)
+        }
+        isUpdatingFields = false
+    }
+
+    func controlTextDidChange(_ notification: Notification) {
+        guard let field = notification.object as? NSTextField else { return }
+        presets.selectedSegment = -1
+        errorLabel.stringValue = ""
+        updateConstrainedDimension(changedField: field)
+    }
+
+    @objc private func logicalSizeChanged() {
+        onLogicalSizeChanged(logicalSizeSwitch.state == .on)
+    }
+
+    @objc private func presetChanged() {
+        guard Self.presetScales.indices.contains(presets.selectedSegment) else { return }
+        setDimensionFields(to: presetSize(for: Self.presetScales[presets.selectedSegment]))
+        errorLabel.stringValue = ""
+    }
+
+    @objc private func dimensionEditingEnded(_ sender: NSTextField) {
+        updateConstrainedDimension(changedField: sender)
+    }
+
+    @objc private func resize() {
+        guard let width = pixelValue(in: widthField),
+              let height = pixelValue(in: heightField) else {
+            errorLabel.stringValue = "Enter a width and height greater than zero."
+            NSSound.beep()
+            return
+        }
+        let isOriginalSize = width == Int(originalPixelSize.width)
+            && height == Int(originalPixelSize.height)
+        guard isOriginalSize || (width <= Self.maximumDimension && height <= Self.maximumDimension) else {
+            errorLabel.stringValue = "Each dimension must be 200,000 px or less."
+            NSSound.beep()
+            return
+        }
+        guard isOriginalSize || width <= Self.maximumPixelCount / height else {
+            errorLabel.stringValue = "The requested image is too large to render safely."
+            NSSound.beep()
+            return
+        }
+        onResize(CGSize(width: width, height: height))
+    }
+}
+
 struct AnnotationCanvasGeometry {
     static func translated(_ annotation: Annotation, by delta: CGPoint) -> Annotation {
         var translated = annotation
@@ -1384,11 +1757,11 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
 
-    init(image: CGImage, annotations: [Annotation], ocrResults: [OCRResult]) {
+    init(image: CGImage, canvasSize: CGSize, annotations: [Annotation], ocrResults: [OCRResult]) {
         self.image = image
         self.annotations = annotations
         self.ocrResults = ocrResults
-        super.init(frame: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        super.init(frame: CGRect(origin: .zero, size: canvasSize))
         counter = (annotations.compactMap(\.counter).max() ?? 0) + 1
         wantsLayer = true
         setAccessibilityRole(.image)
@@ -1396,6 +1769,25 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
     }
 
     required init?(coder: NSCoder) { nil }
+
+    func resize(to canvasSize: CGSize, annotations: [Annotation]) {
+        discardTextEditingOverlay()
+        hideTextToolbar()
+        draft = nil
+        dragStart = nil
+        originalFrame = nil
+        originalPoints = []
+        dragOperation = nil
+        copiedAnnotation = nil
+        self.annotations = annotations
+        setFrameSize(canvasSize)
+        setBoundsSize(canvasSize)
+        if let selectedID {
+            onSelectionChanged?(annotations.first { $0.id == selectedID })
+        }
+        counter = (annotations.compactMap(\.counter).max() ?? 0) + 1
+        needsDisplay = true
+    }
 
     func replaceEdits(annotations: [Annotation], ocrResults: [OCRResult], isOCRSelectionActive: Bool) {
         discardTextEditingOverlay()
@@ -2547,10 +2939,15 @@ private final class BackdropPanelController: NSWindowController, NSWindowDelegat
     private let endColor = NSColorWell()
     private let aspect = NSPopUpButton()
 
-    init(configuration: BackdropConfiguration, image: CGImage, onSave: @escaping (BackdropConfiguration) -> Void) {
+    init(
+        configuration: BackdropConfiguration,
+        image: CGImage,
+        imagePixelSize: CGSize,
+        onSave: @escaping (BackdropConfiguration) -> Void
+    ) {
         self.configuration = configuration
         self.onSave = onSave
-        preview = BackdropPreviewView(image: image, configuration: configuration)
+        preview = BackdropPreviewView(image: image, imagePixelSize: imagePixelSize, configuration: configuration)
         let window = NSWindow(
             contentRect: CGRect(x: 0, y: 0, width: 480, height: 590),
             styleMask: [.titled, .closable],
@@ -2713,10 +3110,12 @@ private final class BackdropPanelController: NSWindowController, NSWindowDelegat
 @MainActor
 private final class BackdropPreviewView: NSView {
     private let image: NSImage
+    private let imagePixelSize: CGSize
     var configuration: BackdropConfiguration { didSet { needsDisplay = true } }
 
-    init(image: CGImage, configuration: BackdropConfiguration) {
+    init(image: CGImage, imagePixelSize: CGSize, configuration: BackdropConfiguration) {
         self.image = NSImage(cgImage: image, size: CGSize(width: image.width, height: image.height))
+        self.imagePixelSize = imagePixelSize
         self.configuration = configuration
         super.init(frame: .zero)
         wantsLayer = true
@@ -2734,13 +3133,16 @@ private final class BackdropPreviewView: NSView {
 
         let available = bounds.insetBy(dx: 14, dy: 14)
         guard configuration.isEnabled else {
-            let imageRect = fittedRect(aspect: image.size.width / image.size.height, inside: available.insetBy(dx: 28, dy: 8))
+            let imageRect = fittedRect(
+                aspect: imagePixelSize.width / imagePixelSize.height,
+                inside: available.insetBy(dx: 28, dy: 8)
+            )
             image.draw(in: imageRect)
             return
         }
 
-        let sourceWidth = image.size.width
-        let sourceHeight = image.size.height
+        let sourceWidth = imagePixelSize.width
+        let sourceHeight = imagePixelSize.height
         let padding = CGFloat(configuration.padding)
         var canvasSize = CGSize(width: sourceWidth + padding * 2, height: sourceHeight + padding * 2)
         switch configuration.aspect {

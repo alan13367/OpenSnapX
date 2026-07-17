@@ -16,7 +16,7 @@ OpenSnapX is a native, local-first screenshot and annotation utility for macOS. 
 - Direct-to-editor capture flow with clipboard, PNG/JPEG save, and the macOS Share sheet
 - Seven-day local editable history with automatic cleanup
 - Non-destructive arrows, lines, shapes, text, pen, highlight, counters, blur, pixelate, solid redaction, and crop
-- Undo/redo, zoom, annotation movement/duplication, pinned images, and focused backdrop styling
+- Undo/redo, zoom, non-destructive image resizing, annotation movement/duplication, pinned images, and focused backdrop styling
 - User-guided scrolling capture with local overlap validation and stitching
 - Menu-bar operation and global screenshot shortcuts without Accessibility permission
 
