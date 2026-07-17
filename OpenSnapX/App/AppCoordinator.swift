@@ -27,6 +27,8 @@ final class AppCoordinator: NSObject {
     private var latestEditorID: UUID?
     private var scrollingController: ScrollingCaptureController?
     private var shortcutConflicts: [ShortcutAction] = []
+    private var colorNoticePanel: NSPanel?
+    private var colorNoticeTask: Task<Void, Never>?
 
     func start() {
         NSApp.setActivationPolicy(.accessory)
@@ -65,8 +67,10 @@ final class AppCoordinator: NSObject {
         menu.addItem(captureItem("Capture Display", #selector(captureDisplay), shortcut: .captureDisplay))
         menu.addItem(captureItem("Scrolling Capture", #selector(captureScrolling), shortcut: .captureScrolling))
         menu.addItem(captureItem("Capture Text", #selector(captureText), shortcut: .captureText))
+        menu.addItem(.separator())
+        menu.addItem(captureItem("Color Picker", #selector(pickColor), shortcut: .colorPicker))
         if !shortcutConflicts.isEmpty {
-            let warning = NSMenuItem(title: "⚠ Screenshot shortcut conflict", action: #selector(showOnboarding), keyEquivalent: "")
+            let warning = NSMenuItem(title: "⚠ Keyboard shortcut conflict", action: #selector(showOnboarding), keyEquivalent: "")
             warning.target = self
             menu.addItem(.separator())
             menu.addItem(warning)
@@ -129,6 +133,7 @@ final class AppCoordinator: NSObject {
         case .captureDisplay: performCapture(mode: .display)
         case .captureRegion: performCapture(mode: .region)
         case .captureScrolling: performCapture(mode: .scrolling)
+        case .colorPicker: pickColor()
         }
     }
 
@@ -137,6 +142,16 @@ final class AppCoordinator: NSObject {
     @objc private func captureDisplay() { performCapture(mode: .display) }
     @objc private func captureScrolling() { performCapture(mode: .scrolling) }
     @objc private func captureText() { performCapture(mode: .text) }
+
+    @objc private func pickColor() {
+        NSColorSampler().show { [weak self] color in
+            Task { @MainActor [weak self] in
+                guard let self, let color, let hex = self.hexString(for: color) else { return }
+                self.exportService.copyText(hex)
+                self.showColorNotice(color: color, hex: hex)
+            }
+        }
+    }
 
     private func performCapture(mode: CaptureMode) {
         guard permissionService.isAuthorized else {
@@ -423,6 +438,118 @@ final class AppCoordinator: NSObject {
             }
         }
         controller.update(sessions, thumbnails: thumbnails)
+    }
+
+    private func showColorNotice(color: NSColor, hex: String) {
+        colorNoticeTask?.cancel()
+        colorNoticePanel?.close()
+
+        let panelSize = CGSize(width: 274, height: 72)
+        let panel = NSPanel(
+            contentRect: CGRect(origin: .zero, size: panelSize),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.level = .statusBar
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.ignoresMouseEvents = true
+        panel.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle]
+
+        let effect = NSVisualEffectView(frame: CGRect(origin: .zero, size: panelSize))
+        effect.material = .hudWindow
+        effect.blendingMode = .behindWindow
+        effect.state = .active
+        effect.wantsLayer = true
+        effect.layer?.cornerRadius = 16
+        effect.layer?.masksToBounds = true
+
+        let swatch = NSView()
+        swatch.translatesAutoresizingMaskIntoConstraints = false
+        swatch.wantsLayer = true
+        swatch.layer?.backgroundColor = color.cgColor
+        swatch.layer?.cornerRadius = 10
+        swatch.layer?.borderWidth = 1
+        swatch.layer?.borderColor = NSColor.white.withAlphaComponent(0.7).cgColor
+        swatch.setAccessibilityElement(true)
+        swatch.setAccessibilityLabel("Selected color \(hex)")
+
+        let title = NSTextField(labelWithString: "Color copied")
+        title.font = .systemFont(ofSize: 14, weight: .semibold)
+        let value = NSTextField(labelWithString: hex)
+        value.font = .monospacedSystemFont(ofSize: 13, weight: .medium)
+        value.textColor = .secondaryLabelColor
+        let labels = NSStackView(views: [title, value])
+        labels.orientation = .vertical
+        labels.alignment = .leading
+        labels.spacing = 2
+
+        let check = NSImageView(image: NSImage(systemSymbolName: "checkmark.circle.fill", accessibilityDescription: nil) ?? NSImage())
+        check.contentTintColor = .systemGreen
+        check.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 17, weight: .semibold)
+
+        let content = NSStackView(views: [swatch, labels, check])
+        content.orientation = .horizontal
+        content.alignment = .centerY
+        content.spacing = 12
+        content.edgeInsets = NSEdgeInsets(top: 12, left: 14, bottom: 12, right: 14)
+        content.translatesAutoresizingMaskIntoConstraints = false
+        effect.addSubview(content)
+        NSLayoutConstraint.activate([
+            content.leadingAnchor.constraint(equalTo: effect.leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: effect.trailingAnchor),
+            content.topAnchor.constraint(equalTo: effect.topAnchor),
+            content.bottomAnchor.constraint(equalTo: effect.bottomAnchor),
+            swatch.widthAnchor.constraint(equalToConstant: 44),
+            swatch.heightAnchor.constraint(equalToConstant: 44),
+            check.widthAnchor.constraint(equalToConstant: 22),
+            check.heightAnchor.constraint(equalToConstant: 22)
+        ])
+
+        panel.contentView = effect
+        let screen = DisplayGeometry.screen(containing: NSEvent.mouseLocation) ?? NSScreen.main
+        if let visibleFrame = screen?.visibleFrame {
+            panel.setFrameOrigin(CGPoint(
+                x: visibleFrame.midX - panelSize.width / 2,
+                y: visibleFrame.maxY - panelSize.height - 56
+            ))
+        } else {
+            panel.center()
+        }
+        panel.alphaValue = 0
+        panel.orderFrontRegardless()
+        colorNoticePanel = panel
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.18
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            panel.animator().alphaValue = 1
+        }
+        colorNoticeTask = Task { [weak self, weak panel] in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled, let self, let panel else { return }
+            NSAnimationContext.runAnimationGroup({ context in
+                context.duration = 0.22
+                context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+                panel.animator().alphaValue = 0
+            }, completionHandler: {
+                Task { @MainActor in panel.close() }
+            })
+            self.colorNoticePanel = nil
+            self.colorNoticeTask = nil
+        }
+    }
+
+    private func hexString(for color: NSColor) -> String? {
+        guard let color = color.usingColorSpace(.sRGB) else { return nil }
+        return String(
+            format: "#%02X%02X%02X",
+            Int((min(max(color.redComponent, 0), 1) * 255).rounded()),
+            Int((min(max(color.greenComponent, 0), 1) * 255).rounded()),
+            Int((min(max(color.blueComponent, 0), 1) * 255).rounded())
+        )
     }
 
     private func showNotice(_ text: String) {

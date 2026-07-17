@@ -82,10 +82,11 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     private let canvas: EditorCanvasView
     private let scrollView = NSScrollView()
     private let colorWell = NSColorWell()
-    private let widthSlider = NSSlider(value: 5, minValue: 1, maxValue: 28, target: nil, action: nil)
+    private let widthSlider = NSSlider(value: 15, minValue: 1, maxValue: 28, target: nil, action: nil)
     private let colorLabel = NSTextField(labelWithString: "#FF0000")
-    private let widthLabel = NSTextField(labelWithString: "5 pt")
+    private let widthLabel = NSTextField(labelWithString: "15 pt")
     private let zoomLabel = NSTextField(labelWithString: "100%")
+    private var colorPalettePopover: NSPopover?
     private var toolButtons: [EditorTool: EditorChromeButton] = [:]
     private var moreToolsButton: EditorChromeButton?
     private var persistTask: Task<Void, Never>?
@@ -96,6 +97,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     private var transientNotice: EditorTransientNoticeView?
     private var isDiscardingCapture = false
     private weak var editorBar: NSView?
+    private var displayedCanvasMagnification: CGFloat = 1
 
     init(
         session: CaptureSession,
@@ -131,6 +133,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         window.delegate = self
         configureUI()
         canvas.onAnnotationsChanged = { [weak self] annotations in self?.annotationsChanged(annotations) }
+        canvas.onSelectionChanged = { [weak self] annotation in self?.selectionChanged(annotation) }
         canvas.onOCRSelection = { [weak self] results in self?.copyOCRResults(results) }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, self.window?.isKeyWindow == true else { return event }
@@ -406,6 +409,9 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         colorWell.colorWellStyle = .minimal
         colorWell.target = self
         colorWell.action = #selector(styleChanged)
+        colorWell.pulldownTarget = self
+        colorWell.pulldownAction = #selector(showColorPalette(_:))
+        colorWell.supportsAlpha = false
         colorWell.toolTip = "Annotation color"
         colorWell.setAccessibilityLabel("Annotation color")
         colorWell.widthAnchor.constraint(equalToConstant: 22).isActive = true
@@ -434,6 +440,121 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         colorLabel.setAccessibilityLabel("Color hex, click or press Tab to copy")
         updateStyleLabels()
         return row
+    }
+
+    @objc private func showColorPalette(_ sender: NSColorWell) {
+        colorPalettePopover?.close()
+
+        let paletteStack = NSStackView()
+        paletteStack.orientation = .vertical
+        paletteStack.alignment = .centerX
+        paletteStack.spacing = 6
+
+        let colors = annotationPaletteColors
+        for startIndex in stride(from: 0, to: colors.count, by: 5) {
+            let row = NSStackView()
+            row.orientation = .horizontal
+            row.alignment = .centerY
+            row.spacing = 6
+            for index in startIndex ..< min(startIndex + 5, colors.count) {
+                let color = colors[index]
+                let button = NSButton(image: colorSwatchImage(color), target: self, action: #selector(selectPaletteColor(_:)))
+                button.tag = index
+                button.isBordered = false
+                button.imagePosition = .imageOnly
+                button.toolTip = hexString(for: color)
+                button.setAccessibilityLabel("Use color \(hexString(for: color))")
+                button.widthAnchor.constraint(equalToConstant: 28).isActive = true
+                button.heightAnchor.constraint(equalToConstant: 28).isActive = true
+                row.addArrangedSubview(button)
+            }
+            paletteStack.addArrangedSubview(row)
+        }
+
+        let separator = NSBox()
+        separator.boxType = .separator
+        separator.translatesAutoresizingMaskIntoConstraints = false
+        separator.widthAnchor.constraint(equalToConstant: 164).isActive = true
+        paletteStack.addArrangedSubview(separator)
+
+        let samplerButton = NSButton(
+            title: "Pick from Capture",
+            target: self,
+            action: #selector(sampleColorFromCapture)
+        )
+        samplerButton.image = NSImage(systemSymbolName: "eyedropper", accessibilityDescription: nil)
+        samplerButton.imagePosition = .imageLeading
+        samplerButton.bezelStyle = .rounded
+        samplerButton.toolTip = "Pick a color from the captured image"
+        samplerButton.setAccessibilityLabel("Pick a color from the captured image")
+        samplerButton.widthAnchor.constraint(equalToConstant: 164).isActive = true
+        paletteStack.addArrangedSubview(samplerButton)
+
+        let content = NSView(frame: CGRect(x: 0, y: 0, width: 188, height: 204))
+        paletteStack.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(paletteStack)
+        NSLayoutConstraint.activate([
+            paletteStack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 12),
+            paletteStack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -12),
+            paletteStack.topAnchor.constraint(equalTo: content.topAnchor, constant: 12),
+            paletteStack.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -12)
+        ])
+
+        let controller = NSViewController()
+        controller.view = content
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.animates = true
+        popover.contentSize = content.frame.size
+        popover.contentViewController = controller
+        colorPalettePopover = popover
+        popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .maxY)
+    }
+
+    @objc private func selectPaletteColor(_ sender: NSButton) {
+        guard annotationPaletteColors.indices.contains(sender.tag) else { return }
+        applyPickedColor(annotationPaletteColors[sender.tag])
+        colorPalettePopover?.close()
+    }
+
+    @objc private func sampleColorFromCapture() {
+        colorPalettePopover?.close()
+        NSColorSampler().show { [weak self] color in
+            Task { @MainActor [weak self] in
+                guard let self, let color else { return }
+                self.applyPickedColor(color)
+            }
+        }
+    }
+
+    private func applyPickedColor(_ color: NSColor) {
+        colorWell.color = color
+        styleChanged()
+    }
+
+    private var annotationPaletteColors: [NSColor] {
+        [
+            .systemRed, .systemOrange, .systemYellow, .systemGreen, .systemMint,
+            .systemTeal, .systemCyan, .systemBlue, .systemIndigo, .systemPurple,
+            .systemPink, .systemBrown,
+            NSColor(srgbRed: 0.55, green: 0.10, blue: 0.18, alpha: 1),
+            NSColor(srgbRed: 0.45, green: 0.72, blue: 0.12, alpha: 1),
+            NSColor(srgbRed: 0.08, green: 0.18, blue: 0.42, alpha: 1),
+            .black, .darkGray, .gray, .lightGray, .white
+        ]
+    }
+
+    private func colorSwatchImage(_ color: NSColor) -> NSImage {
+        let isSelected = hexString(for: color) == hexString(for: colorWell.color)
+        return NSImage(size: CGSize(width: 24, height: 24), flipped: false) { rect in
+            let circle = NSBezierPath(ovalIn: rect.insetBy(dx: 2, dy: 2))
+            color.setFill()
+            circle.fill()
+            (isSelected ? NSColor.controlAccentColor : NSColor.separatorColor).setStroke()
+            circle.lineWidth = isSelected ? 3 : 1
+            circle.stroke()
+            return true
+        }
     }
 
     private func makeWidthInfo() -> NSView {
@@ -467,6 +588,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         guard let anchor = sender.view else { return }
         widthSlider.target = self
         widthSlider.action = #selector(styleChanged)
+        widthSlider.isContinuous = true
         widthSlider.controlSize = .small
         widthSlider.toolTip = "Stroke width: 1–28 pt"
         widthSlider.setAccessibilityLabel("Stroke width in points")
@@ -608,6 +730,18 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     @objc private func styleChanged() {
         updateStyleLabels()
         applyStyle()
+        canvas.applyStrokeToSelection(
+            color: RGBAColor(colorWell.color),
+            lineWidth: widthSlider.doubleValue
+        )
+    }
+
+    private func selectionChanged(_ annotation: Annotation?) {
+        guard let annotation,
+              EditorTool(rawValue: annotation.kind.rawValue)?.usesStrokeWidth == true else { return }
+        colorWell.color = annotation.style.strokeColor.nsColor
+        widthSlider.doubleValue = annotation.style.lineWidth
+        updateStyleLabels()
     }
 
     @objc private func copyColorHex() {
@@ -648,7 +782,12 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func updateZoomLabel() {
-        zoomLabel.stringValue = "\(Int((scrollView.magnification * 100).rounded()))%"
+        let magnification = scrollView.magnification
+        zoomLabel.stringValue = "\(Int((magnification * 100).rounded()))%"
+        if abs(magnification - displayedCanvasMagnification) > 0.0001 {
+            displayedCanvasMagnification = magnification
+            canvas.needsDisplay = true
+        }
     }
 
     private func hexString(for color: NSColor) -> String {
@@ -1181,20 +1320,33 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
         }
     }
     var onAnnotationsChanged: (([Annotation]) -> Void)?
+    var onSelectionChanged: ((Annotation?) -> Void)?
     var onOCRSelection: (([OCRResult]) -> Void)?
 
     private enum DragOperation {
         case move
-        case resizeFrame
         case startPoint
         case endPoint
+        case resizeTopLeft
+        case resizeTopRight
+        case resizeBottomLeft
+        case resizeBottomRight
+        case resizeTop
+        case resizeBottom
+        case resizeLeft
+        case resizeRight
     }
 
     private let image: CGImage
     private let effectContext = CIContext(options: [.cacheIntermediates: false])
     private let effectPreviewCache = NSCache<NSString, CGImage>()
     private var draft: Annotation?
-    private var selectedID: UUID?
+    private var selectedID: UUID? {
+        didSet {
+            guard oldValue != selectedID else { return }
+            onSelectionChanged?(selectedID.flatMap { id in annotations.first { $0.id == id } })
+        }
+    }
     private var dragStart: CGPoint?
     private var originalFrame: CGRect?
     private var originalPoints: [CanvasPoint] = []
@@ -1330,15 +1482,16 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
                 let delta = CGPoint(x: point.x - start.x, y: point.y - start.y)
                 annotations[index].frame = CanvasRect(originalFrame.offsetBy(dx: delta.x, dy: delta.y))
                 annotations[index].points = AnnotationCanvasGeometry.movedPoints(originalPoints, by: delta)
-            case .resizeFrame:
-                let newFrame = CGRect(
-                    x: originalFrame.minX,
-                    y: originalFrame.minY,
-                    width: max(4, originalFrame.width + point.x - start.x),
-                    height: max(4, originalFrame.height + point.y - start.y)
-                )
+            case .resizeTopLeft, .resizeTopRight, .resizeBottomLeft, .resizeBottomRight,
+                 .resizeTop, .resizeBottom, .resizeLeft, .resizeRight:
+                let delta = CGPoint(x: point.x - start.x, y: point.y - start.y)
+                let newFrame = resizedFrame(originalFrame, for: dragOperation, by: delta)
                 annotations[index].frame = CanvasRect(newFrame)
-                annotations[index].points = AnnotationCanvasGeometry.resizedPoints(originalPoints, from: originalFrame, to: newFrame)
+                annotations[index].points = AnnotationCanvasGeometry.resizedPoints(
+                    originalPoints,
+                    from: originalFrame,
+                    to: newFrame
+                )
             case .startPoint, .endPoint:
                 var points = originalPoints
                 guard !points.isEmpty else { break }
@@ -1488,6 +1641,8 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
             }
         case .rectangle, .redact, .blur, .pixelate, .crop:
             let rectPath = NSBezierPath(rect: frame)
+            rectPath.lineWidth = annotation.style.lineWidth
+            rectPath.lineJoinStyle = .round
             if annotation.kind == .redact { (annotation.style.fillColor?.nsColor ?? .black).setFill(); rectPath.fill() }
             else if annotation.kind == .blur || annotation.kind == .pixelate {
                 if let preview = effectPreviewImage(kind: annotation.kind) {
@@ -1499,10 +1654,16 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
                 rectPath.setLineDash(dash, count: dash.count, phase: 0)
                 rectPath.stroke()
             } else if annotation.kind == .crop {
-                let dash: [CGFloat] = [8, 4]; rectPath.setLineDash(dash, count: 2, phase: 0); rectPath.stroke()
+                let dash = [overlayMetric(8), overlayMetric(4)]
+                rectPath.lineWidth = overlayMetric(1.5)
+                rectPath.setLineDash(dash, count: dash.count, phase: 0)
+                rectPath.stroke()
             } else { if annotation.style.fillColor != nil { rectPath.fill() }; rectPath.stroke() }
         case .ellipse:
-            let ellipse = NSBezierPath(ovalIn: frame); if annotation.style.fillColor != nil { ellipse.fill() }; ellipse.stroke()
+            let ellipse = NSBezierPath(ovalIn: frame)
+            ellipse.lineWidth = annotation.style.lineWidth
+            if annotation.style.fillColor != nil { ellipse.fill() }
+            ellipse.stroke()
         case .pen, .highlighter:
             guard let first = annotation.points.first else { break }
             if annotation.kind == .highlighter { annotation.style.strokeColor.nsColor.withAlphaComponent(0.38).setStroke() }
@@ -1524,20 +1685,17 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
             value.draw(at: CGPoint(x: frame.midX - size.width / 2, y: frame.midY - size.height / 2), withAttributes: attributes)
         }
         if annotation.id == selectedID {
-            NSColor.controlAccentColor.setStroke()
-            NSColor.white.setFill()
             if annotation.kind == .line || annotation.kind == .arrow,
                let start = annotation.points.first?.cgPoint,
                let end = annotation.points.last?.cgPoint {
                 drawSelectionHandle(at: start)
                 drawSelectionHandle(at: end)
             } else {
-                let selectionPath = NSBezierPath(rect: frame.insetBy(dx: -4, dy: -4))
-                selectionPath.lineWidth = 1
-                selectionPath.stroke()
-                let handle = NSBezierPath(roundedRect: resizeHandle(for: frame), xRadius: 2, yRadius: 2)
-                handle.fill()
-                handle.stroke()
+                let selectionFrame = selectionFrame(for: annotation)
+                drawSelectionOutline(in: selectionFrame)
+                for hitArea in resizeHandles(for: selectionFrame) {
+                    drawResizeHandle(in: visualResizeHandle(for: hitArea))
+                }
             }
         }
     }
@@ -1654,19 +1812,32 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
             }
             return nil
         }
-        if resizeHandle(for: annotation.frame.cgRect).contains(point) { return .resizeFrame }
+        let handles = resizeHandles(for: selectionFrame(for: annotation))
+        // Corners first (priority), then edges, then body.
+        let corners = Array(handles.prefix(4))
+        for (i, handle) in corners.enumerated() {
+            if handle.contains(point) {
+                return [.resizeTopLeft, .resizeTopRight, .resizeBottomLeft, .resizeBottomRight][i]
+            }
+        }
+        let edges = Array(handles.dropFirst(4))
+        for (i, handle) in edges.enumerated() {
+            if handle.contains(point) {
+                return [.resizeTop, .resizeBottom, .resizeLeft, .resizeRight][i]
+            }
+        }
         return annotation.frame.cgRect.insetBy(dx: -5, dy: -5).contains(point) ? .move : nil
     }
 
     private func drawSelectionHandle(at point: CGPoint) {
-        let handle = NSBezierPath(ovalIn: selectionHandle(at: point))
-        handle.fill()
-        handle.lineWidth = 2
-        handle.stroke()
+        let size = overlayMetric(12)
+        let frame = CGRect(x: point.x - size / 2, y: point.y - size / 2, width: size, height: size)
+        drawHandlePath(NSBezierPath(ovalIn: frame))
     }
 
     private func selectionHandle(at point: CGPoint) -> CGRect {
-        CGRect(x: point.x - 7, y: point.y - 7, width: 14, height: 14)
+        let size = overlayMetric(20)
+        return CGRect(x: point.x - size / 2, y: point.y - size / 2, width: size, height: size)
     }
 
     private func rect(from start: CGPoint, to end: CGPoint) -> CGRect {
@@ -1954,12 +2125,201 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
         refreshTextToolbar()
     }
 
-    private func resizeHandle(for frame: CGRect) -> CGRect {
-        CGRect(x: frame.maxX - 6, y: frame.maxY - 6, width: 12, height: 12)
+    func applyStrokeToSelection(color: RGBAColor, lineWidth: Double) {
+        guard let selectedID,
+              let index = annotations.firstIndex(where: { $0.id == selectedID }),
+              EditorTool(rawValue: annotations[index].kind.rawValue)?.usesStrokeWidth == true else { return }
+        var annotation = annotations[index]
+        guard annotation.style.strokeColor != color || annotation.style.lineWidth != lineWidth else { return }
+        annotation.style.strokeColor = color
+        annotation.style.lineWidth = lineWidth
+        annotations[index] = annotation
+        onAnnotationsChanged?(annotations)
+    }
+
+    private func resizedFrame(_ frame: CGRect, for operation: DragOperation, by delta: CGPoint) -> CGRect {
+        let minimumSize: CGFloat = 4
+        var left = frame.minX
+        var right = frame.maxX
+        var top = frame.minY
+        var bottom = frame.maxY
+
+        switch operation {
+        case .resizeTopLeft, .resizeBottomLeft, .resizeLeft:
+            left = min(frame.maxX - minimumSize, frame.minX + delta.x)
+        case .resizeTopRight, .resizeBottomRight, .resizeRight:
+            right = max(frame.minX + minimumSize, frame.maxX + delta.x)
+        case .move, .startPoint, .endPoint, .resizeTop, .resizeBottom:
+            break
+        }
+        switch operation {
+        case .resizeTopLeft, .resizeTopRight, .resizeTop:
+            top = min(frame.maxY - minimumSize, frame.minY + delta.y)
+        case .resizeBottomLeft, .resizeBottomRight, .resizeBottom:
+            bottom = max(frame.minY + minimumSize, frame.maxY + delta.y)
+        case .move, .startPoint, .endPoint, .resizeLeft, .resizeRight:
+            break
+        }
+        return CGRect(x: left, y: top, width: right - left, height: bottom - top)
+    }
+
+    private func selectionFrame(for annotation: Annotation) -> CGRect {
+        let usesStroke = EditorTool(rawValue: annotation.kind.rawValue)?.usesStrokeWidth == true
+        let outset = usesStroke
+            ? annotation.style.lineWidth / 2 + overlayMetric(5)
+            : overlayMetric(5)
+        return annotation.frame.cgRect.insetBy(dx: -outset, dy: -outset)
+    }
+
+    private func drawSelectionOutline(in frame: CGRect) {
+        let path = NSBezierPath(rect: frame)
+        path.lineJoinStyle = .round
+        NSColor.black.withAlphaComponent(0.72).setStroke()
+        path.lineWidth = overlayMetric(5)
+        path.stroke()
+        NSColor.white.withAlphaComponent(0.96).setStroke()
+        path.lineWidth = overlayMetric(3)
+        path.stroke()
+        NSColor.controlAccentColor.setStroke()
+        path.lineWidth = overlayMetric(1.5)
+        path.stroke()
+    }
+
+    private func drawResizeHandle(in frame: CGRect) {
+        let radius = overlayMetric(3)
+        drawHandlePath(NSBezierPath(roundedRect: frame, xRadius: radius, yRadius: radius))
+    }
+
+    private func drawHandlePath(_ path: NSBezierPath) {
+        NSColor.controlAccentColor.setFill()
+        path.fill()
+        NSColor.black.withAlphaComponent(0.78).setStroke()
+        path.lineWidth = overlayMetric(4)
+        path.stroke()
+        NSColor.white.setStroke()
+        path.lineWidth = overlayMetric(2)
+        path.stroke()
+    }
+
+    private func resizeHandles(for frame: CGRect) -> [CGRect] {
+        let size = overlayMetric(20)
+        let half = size / 2
+        let centers = [
+            CGPoint(x: frame.minX, y: frame.minY),
+            CGPoint(x: frame.maxX, y: frame.minY),
+            CGPoint(x: frame.minX, y: frame.maxY),
+            CGPoint(x: frame.maxX, y: frame.maxY),
+            CGPoint(x: frame.midX, y: frame.minY),
+            CGPoint(x: frame.midX, y: frame.maxY),
+            CGPoint(x: frame.minX, y: frame.midY),
+            CGPoint(x: frame.maxX, y: frame.midY)
+        ]
+        return centers.map {
+            CGRect(x: $0.x - half, y: $0.y - half, width: size, height: size)
+        }
+    }
+
+    private func visualResizeHandle(for hitArea: CGRect) -> CGRect {
+        let size = overlayMetric(12)
+        return CGRect(
+            x: hitArea.midX - size / 2,
+            y: hitArea.midY - size / 2,
+            width: size,
+            height: size
+        )
+    }
+
+    private func overlayMetric(_ screenPoints: CGFloat) -> CGFloat {
+        screenPoints / max(enclosingScrollView?.magnification ?? 1, 0.01)
     }
 
     private func clamped(_ point: CGPoint) -> CGPoint {
         CGPoint(x: min(max(0, point.x), bounds.maxX), y: min(max(0, point.y), bounds.maxY))
+    }
+
+    private var hoverTrackingArea: NSTrackingArea?
+    private var currentCursor = NSCursor.arrow
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTrackingArea { removeTrackingArea(hoverTrackingArea) }
+        let area = NSTrackingArea(
+            rect: .zero,
+            options: [.activeInKeyWindow, .inVisibleRect, .mouseMoved, .mouseEnteredAndExited],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        hoverTrackingArea = area
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        guard dragOperation == nil else { return }
+        setCursor(for: clamped(convert(event.locationInWindow, from: nil)))
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        NSCursor.arrow.set()
+        currentCursor = .arrow
+    }
+
+    private func setCursor(for point: CGPoint) {
+        let cursor = cursorForPoint(point)
+        guard cursor != currentCursor else { return }
+        cursor.set()
+        currentCursor = cursor
+    }
+
+    private func cursorForPoint(_ point: CGPoint) -> NSCursor {
+        guard tool == .select,
+              let selectedID,
+              let annotation = annotations.first(where: { $0.id == selectedID }) else { return .arrow }
+        if annotation.kind == .line || annotation.kind == .arrow,
+           let start = annotation.points.first?.cgPoint,
+           let end = annotation.points.last?.cgPoint {
+            return selectionHandle(at: start).contains(point) || selectionHandle(at: end).contains(point)
+                ? .pointingHand
+                : .arrow
+        }
+        guard let index = resizeHandles(for: selectionFrame(for: annotation))
+            .firstIndex(where: { $0.contains(point) }) else { return .arrow }
+        switch index {
+        case 0, 3: return cachedMainDiagonalCursor
+        case 1, 2: return cachedAntiDiagonalCursor
+        case 4: return .resizeUp
+        case 5: return .resizeDown
+        case 6: return .resizeLeft
+        case 7: return .resizeRight
+        default: return .arrow
+        }
+    }
+
+    private lazy var cachedMainDiagonalCursor = Self.makeDiagonalResizeCursor(mainDiagonal: true)
+    private lazy var cachedAntiDiagonalCursor = Self.makeDiagonalResizeCursor(mainDiagonal: false)
+
+    private static func makeDiagonalResizeCursor(mainDiagonal: Bool) -> NSCursor {
+        let image = NSImage(size: CGSize(width: 22, height: 22), flipped: false) { _ in
+            NSColor.labelColor.setStroke()
+            let path = NSBezierPath()
+            let start = mainDiagonal ? CGPoint(x: 5, y: 17) : CGPoint(x: 5, y: 5)
+            let end = mainDiagonal ? CGPoint(x: 17, y: 5) : CGPoint(x: 17, y: 17)
+            path.move(to: start)
+            path.line(to: end)
+            path.move(to: CGPoint(x: start.x, y: start.y + (mainDiagonal ? -5 : 5)))
+            path.line(to: start)
+            path.line(to: CGPoint(x: start.x + 5, y: start.y))
+            path.move(to: CGPoint(x: end.x - 5, y: end.y))
+            path.line(to: end)
+            path.line(to: CGPoint(x: end.x, y: end.y + (mainDiagonal ? 5 : -5)))
+            path.lineWidth = 1.6
+            path.lineCapStyle = .round
+            path.lineJoinStyle = .round
+            path.stroke()
+            return true
+        }
+        return NSCursor(image: image, hotSpot: CGPoint(x: 11, y: 11))
     }
 }
 

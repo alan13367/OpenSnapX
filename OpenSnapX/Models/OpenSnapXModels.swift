@@ -151,7 +151,7 @@ struct RichTextDocument: Codable, Hashable, Sendable {
 struct AnnotationStyle: Codable, Hashable, Sendable {
     var strokeColor: RGBAColor = .red
     var fillColor: RGBAColor?
-    var lineWidth: Double = 5
+    var lineWidth: Double = 15
     var opacity: Double = 1
     var fontSize: Double = 24
     var arrowHead: ArrowHeadStyle = .end

@@ -3,6 +3,10 @@ import XCTest
 @testable import OpenSnapX
 
 final class ModelAndGeometryTests: XCTestCase {
+    func testAnnotationStyleDefaultsToFifteenPointStroke() {
+        XCTAssertEqual(AnnotationStyle().lineWidth, 15)
+    }
+
     func testDisplayPointSizeExpandsToRetinaCapturePixels() {
         let pixels = DisplayGeometry.pixelSize(from: CGSize(width: 1512, height: 982), scale: 2)
         XCTAssertEqual(pixels, CGSize(width: 3024, height: 1964))

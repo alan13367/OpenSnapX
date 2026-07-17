@@ -24,7 +24,7 @@ final class OnboardingWindowController: NSWindowController {
         self.onFinish = onFinish
 
         let window = NSWindow(
-            contentRect: CGRect(x: 0, y: 0, width: 760, height: 700),
+            contentRect: CGRect(x: 0, y: 0, width: 760, height: 760),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -32,7 +32,7 @@ final class OnboardingWindowController: NSWindowController {
         window.title = "Welcome to OpenSnapX"
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = true
-        window.minSize = NSSize(width: 720, height: 680)
+        window.minSize = NSSize(width: 720, height: 740)
         window.backgroundColor = .windowBackgroundColor
         super.init(window: window)
         window.delegate = self

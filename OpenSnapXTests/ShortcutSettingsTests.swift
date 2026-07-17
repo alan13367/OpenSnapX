@@ -23,6 +23,15 @@ final class ShortcutSettingsTests: XCTestCase {
         XCTAssertEqual(reloaded.shortcut(for: .captureRegion), custom)
         XCTAssertEqual(reloaded.shortcut(for: .captureDisplay), ShortcutAction.captureDisplay.defaultShortcut)
         XCTAssertEqual(reloaded.shortcut(for: .captureScrolling), ShortcutAction.captureScrolling.defaultShortcut)
+        XCTAssertEqual(reloaded.shortcut(for: .colorPicker), ShortcutAction.colorPicker.defaultShortcut)
+    }
+
+    func testColorPickerDefaultsToCommandShiftC() {
+        let shortcut = ShortcutAction.colorPicker.defaultShortcut
+        XCTAssertEqual(shortcut.keyCode, UInt32(kVK_ANSI_C))
+        XCTAssertEqual(shortcut.modifiers, UInt32(cmdKey | shiftKey))
+        XCTAssertEqual(shortcut.keyLabel, "C")
+        XCTAssertEqual(shortcut.displayString, "⇧⌘C")
     }
 
     func testCaptureSoundDefaultsToEnabledAndPersists() {
@@ -53,6 +62,7 @@ final class ShortcutSettingsTests: XCTestCase {
         XCTAssertTrue(ShortcutAction.captureRegion.defaultShortcut.matchesBuiltInScreenshotShortcut)
         XCTAssertTrue(ShortcutAction.captureScrolling.defaultShortcut.matchesBuiltInScreenshotShortcut)
         XCTAssertFalse(ShortcutAction.captureText.defaultShortcut.matchesBuiltInScreenshotShortcut)
+        XCTAssertFalse(ShortcutAction.colorPicker.defaultShortcut.matchesBuiltInScreenshotShortcut)
 
         let clipboardVariant = ShortcutDefinition(
             keyCode: UInt32(kVK_ANSI_4),
