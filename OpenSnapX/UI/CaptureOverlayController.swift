@@ -104,7 +104,6 @@ private final class CaptureOverlayView: NSView {
     private var originalSelection: CGRect = .zero
     private var isMoving = false
     private var didMove = false
-    private var mousePoint: CGPoint = .zero
     private var hoveredWindow: WindowCandidate?
     private var trackingArea: NSTrackingArea?
 
@@ -144,20 +143,23 @@ private final class CaptureOverlayView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         window?.makeFirstResponder(self)
+        window?.invalidateCursorRects(for: self)
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        addCursorRect(bounds, cursor: mode == .window ? .pointingHand : Self.precisionCursor)
     }
 
     override func mouseMoved(with event: NSEvent) {
-        mousePoint = convert(event.locationInWindow, from: nil)
-        if mode == .window {
-            hoveredWindow = candidate(at: event.locationInWindow)
-            selection = hoveredWindow.map(localFrame(for:)) ?? .zero
-        }
+        guard mode == .window else { return }
+        hoveredWindow = candidate(at: event.locationInWindow)
+        selection = hoveredWindow.map(localFrame(for:)) ?? .zero
         needsDisplay = true
     }
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        mousePoint = point
         if mode == .window {
             if let selectedWindow = hoveredWindow ?? candidate(at: event.locationInWindow) {
                 complete(windowCandidate: selectedWindow)
@@ -179,7 +181,6 @@ private final class CaptureOverlayView: NSView {
     override func mouseDragged(with event: NSEvent) {
         guard let dragAnchor else { return }
         let point = clamped(convert(event.locationInWindow, from: nil))
-        mousePoint = point
         didMove = hypot(point.x - dragAnchor.x, point.y - dragAnchor.y) > 2
         if isMoving {
             let delta = CGPoint(x: point.x - dragAnchor.x, y: point.y - dragAnchor.y)
@@ -219,6 +220,7 @@ private final class CaptureOverlayView: NSView {
         case 49:
             mode = mode == .window ? .region : .window
             selection = .zero
+            window?.invalidateCursorRects(for: self)
             needsDisplay = true
         case 123, 124, 125, 126:
             nudgeSelection(keyCode: event.keyCode, amount: event.modifierFlags.contains(.shift) ? 10 : 1)
@@ -246,7 +248,6 @@ private final class CaptureOverlayView: NSView {
         dim.fill()
 
         guard !selection.isEmpty else {
-            drawLoupe(at: mousePoint)
             drawHint("Drag and release to capture • Space selects a window • Esc cancels", at: CGPoint(x: bounds.midX, y: bounds.maxY - 44))
             return
         }
@@ -271,20 +272,36 @@ private final class CaptureOverlayView: NSView {
         for point in points { NSBezierPath(ovalIn: CGRect(x: point.x - 4, y: point.y - 4, width: 8, height: 8)).fill() }
     }
 
-    private func drawLoupe(at point: CGPoint) {
-        guard bounds.contains(point) else { return }
-        let frame = CGRect(x: min(bounds.maxX - 92, point.x + 18), y: min(bounds.maxY - 92, point.y + 18), width: 74, height: 74)
-        NSColor.windowBackgroundColor.withAlphaComponent(0.92).setFill()
-        NSBezierPath(ovalIn: frame).fill()
-        NSColor.controlAccentColor.setStroke()
-        let cross = NSBezierPath()
-        cross.move(to: CGPoint(x: frame.midX - 10, y: frame.midY))
-        cross.line(to: CGPoint(x: frame.midX + 10, y: frame.midY))
-        cross.move(to: CGPoint(x: frame.midX, y: frame.midY - 10))
-        cross.line(to: CGPoint(x: frame.midX, y: frame.midY + 10))
-        cross.lineWidth = 1
-        cross.stroke()
-    }
+    private static let precisionCursor: NSCursor = {
+        let center = CGPoint(x: 12, y: 12)
+        let image = NSImage(size: CGSize(width: 24, height: 24), flipped: false) { _ in
+            let crosshair = NSBezierPath()
+            crosshair.move(to: CGPoint(x: 1.5, y: center.y))
+            crosshair.line(to: CGPoint(x: 9, y: center.y))
+            crosshair.move(to: CGPoint(x: 15, y: center.y))
+            crosshair.line(to: CGPoint(x: 22.5, y: center.y))
+            crosshair.move(to: CGPoint(x: center.x, y: 1.5))
+            crosshair.line(to: CGPoint(x: center.x, y: 9))
+            crosshair.move(to: CGPoint(x: center.x, y: 15))
+            crosshair.line(to: CGPoint(x: center.x, y: 22.5))
+            crosshair.lineCapStyle = .round
+
+            NSColor.black.withAlphaComponent(0.82).setStroke()
+            crosshair.lineWidth = 3
+            crosshair.stroke()
+            NSColor.white.withAlphaComponent(0.96).setStroke()
+            crosshair.lineWidth = 1
+            crosshair.stroke()
+
+            NSColor.black.withAlphaComponent(0.88).setFill()
+            NSBezierPath(ovalIn: CGRect(x: 10.5, y: 10.5, width: 3, height: 3)).fill()
+            NSColor.white.setFill()
+            NSBezierPath(ovalIn: CGRect(x: 11.5, y: 11.5, width: 1, height: 1)).fill()
+            return true
+        }
+        image.isTemplate = false
+        return NSCursor(image: image, hotSpot: center)
+    }()
 
     private func drawHint(_ text: String, at point: CGPoint) {
         let attributes: [NSAttributedString.Key: Any] = [
