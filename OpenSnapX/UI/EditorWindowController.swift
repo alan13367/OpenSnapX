@@ -1107,7 +1107,10 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     @objc private func copyRendered() {
         Task {
             do {
-                exportService.copy(try await renderedImage())
+                await exportService.copy(
+                    try await renderedImage(),
+                    displayScale: session.manifest.displayScale
+                )
                 window?.close()
             } catch {
                 present(error)
@@ -1117,7 +1120,12 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
 
     @objc private func saveRendered() {
         Task {
-            do { _ = try await exportService.save(try await renderedImage()) } catch { present(error) }
+            do {
+                _ = try await exportService.save(
+                    try await renderedImage(),
+                    displayScale: session.manifest.displayScale
+                )
+            } catch { present(error) }
         }
     }
 

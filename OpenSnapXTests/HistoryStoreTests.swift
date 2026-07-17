@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import ImageIO
 import XCTest
 @testable import OpenSnapX
 
@@ -49,6 +50,21 @@ final class HistoryStoreTests: XCTestCase {
         XCTAssertEqual(thumbnail.height, 40)
     }
 
+    func testPNGEncodingStoresRetinaResolutionMetadata() throws {
+        let data = try ImageCodec.data(
+            from: solidImage(width: 32, height: 24),
+            format: .png,
+            dpi: ImageCodec.dpi(forDisplayScale: 2)
+        )
+        let source = try XCTUnwrap(CGImageSourceCreateWithData(data as CFData, nil))
+        let properties = try XCTUnwrap(
+            CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+        )
+
+        XCTAssertEqual((properties[kCGImagePropertyDPIWidth] as? NSNumber)?.doubleValue, 144)
+        XCTAssertEqual((properties[kCGImagePropertyDPIHeight] as? NSNumber)?.doubleValue, 144)
+    }
+
     func testThumbnailPreservesAspectRatioWithinMaximumSize() throws {
         let thumbnail = try ImageCodec.thumbnail(from: solidImage(width: 1_200, height: 800), maximumPixelSize: 480)
         XCTAssertEqual(thumbnail.width, 480)
@@ -82,9 +98,13 @@ private func darkPixelCount(in image: CGImage) -> Int {
     return count
 }
 
-func solidImage(width: Int, height: Int, color: CGColor = CGColor(red: 1, green: 1, blue: 1, alpha: 1)) throws -> CGImage {
-    let space = CGColorSpace(name: CGColorSpace.sRGB)!
-    let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+func solidImage(
+    width: Int,
+    height: Int,
+    color: CGColor = CGColor(red: 1, green: 1, blue: 1, alpha: 1),
+    colorSpace: CGColorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
+) throws -> CGImage {
+    let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
     context.setFillColor(color)
     context.fill(CGRect(x: 0, y: 0, width: width, height: height))
     return context.makeImage()!

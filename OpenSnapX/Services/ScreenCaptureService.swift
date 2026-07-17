@@ -1,7 +1,6 @@
 @preconcurrency import ScreenCaptureKit
 import AppKit
 import CoreGraphics
-import CoreImage
 import Foundation
 
 struct WindowCandidate: @unchecked Sendable {
@@ -50,29 +49,45 @@ final class ScreenCaptureService: CaptureService, @unchecked Sendable {
                   let window = content.windows.first(where: { $0.windowID == windowID }) else {
                 throw OpenSnapXError.captureFailed("The selected window disappeared.")
             }
-            let windowScale = NSScreen.screens.first(where: { $0.frame.intersects(appKitFrame(for: window.frame)) })?.backingScaleFactor ?? 2
             let filter = SCContentFilter(desktopIndependentWindow: window)
+            let fallbackScale = NSScreen.screens.first {
+                $0.frame.intersects(appKitFrame(for: window.frame))
+            }?.backingScaleFactor ?? 2
+            let windowScale = filter.pointPixelScale > 0
+                ? max(1, Double(filter.pointPixelScale))
+                : max(1, Double(fallbackScale))
+            let captureSize = capturePixelSize(
+                for: filter,
+                fallbackPointSize: window.frame.size,
+                fallbackScale: fallbackScale
+            )
             let configuration = makeConfiguration(
-                width: max(1, Int(window.frame.width * windowScale)),
-                height: max(1, Int(window.frame.height * windowScale)),
+                width: max(1, Int(captureSize.width)),
+                height: max(1, Int(captureSize.height)),
                 includeCursor: request.includeCursor
             )
             let image = try await SCScreenshotManager.captureImage(
                 contentFilter: filter,
                 configuration: configuration
             )
-            return CaptureResult(image: normalizedSRGB(image), mode: request.mode, displayScale: windowScale)
+            return CaptureResult(image: image, mode: request.mode, displayScale: windowScale)
 
         case .region, .text, .scrolling, .display:
             guard let display = resolveDisplay(request.displayID, in: content.displays) else {
                 throw OpenSnapXError.displayNotFound
             }
-            let displayScale = scale(for: display)
-            let captureSize = DisplayGeometry.pixelSize(
-                from: CGSize(width: display.width, height: display.height),
-                scale: displayScale
-            )
             let filter = SCContentFilter(display: display, excludingWindows: excludedWindows)
+            let fallbackScale = NSScreen.screens.first {
+                DisplayGeometry.displayID(for: $0) == display.displayID
+            }?.backingScaleFactor ?? 1
+            let displayScale = filter.pointPixelScale > 0
+                ? max(1, Double(filter.pointPixelScale))
+                : max(1, Double(fallbackScale))
+            let captureSize = capturePixelSize(
+                for: filter,
+                fallbackPointSize: CGSize(width: display.width, height: display.height),
+                fallbackScale: fallbackScale
+            )
             let configuration = makeConfiguration(
                 width: max(1, Int(captureSize.width)),
                 height: max(1, Int(captureSize.height)),
@@ -84,7 +99,7 @@ final class ScreenCaptureService: CaptureService, @unchecked Sendable {
             )
 
             guard request.mode != .display, let selection = request.selection?.cgRect else {
-                return CaptureResult(image: normalizedSRGB(fullImage), mode: request.mode, displayScale: displayScale)
+                return CaptureResult(image: fullImage, mode: request.mode, displayScale: displayScale)
             }
 
             let imageBounds = CGRect(x: 0, y: 0, width: fullImage.width, height: fullImage.height)
@@ -96,7 +111,7 @@ final class ScreenCaptureService: CaptureService, @unchecked Sendable {
                 throw OpenSnapXError.captureFailed("The selected area is outside the display.")
             }
             return CaptureResult(
-                image: normalizedSRGB(cropped),
+                image: cropped,
                 mode: request.mode,
                 displayScale: displayScale,
                 sourceRect: CanvasRect(cropRect)
@@ -120,12 +135,18 @@ final class ScreenCaptureService: CaptureService, @unchecked Sendable {
             guard let display = content.displays.first(where: { $0.displayID == displayID }) else {
                 throw OpenSnapXError.displayNotFound
             }
-            let displayScale = scale(for: display)
-            let captureSize = DisplayGeometry.pixelSize(
-                from: CGSize(width: display.width, height: display.height),
-                scale: displayScale
-            )
             let filter = SCContentFilter(display: display, excludingWindows: excludedWindows)
+            let fallbackScale = NSScreen.screens.first {
+                DisplayGeometry.displayID(for: $0) == display.displayID
+            }?.backingScaleFactor ?? 1
+            let displayScale = filter.pointPixelScale > 0
+                ? max(1, Double(filter.pointPixelScale))
+                : max(1, Double(fallbackScale))
+            let captureSize = capturePixelSize(
+                for: filter,
+                fallbackPointSize: CGSize(width: display.width, height: display.height),
+                fallbackScale: fallbackScale
+            )
             let configuration = makeConfiguration(
                 width: max(1, Int(captureSize.width)),
                 height: max(1, Int(captureSize.height)),
@@ -136,7 +157,7 @@ final class ScreenCaptureService: CaptureService, @unchecked Sendable {
                 configuration: configuration
             )
             captures[displayID] = CaptureResult(
-                image: normalizedSRGB(image),
+                image: image,
                 mode: .display,
                 displayScale: displayScale
             )
@@ -191,9 +212,18 @@ final class ScreenCaptureService: CaptureService, @unchecked Sendable {
         )
     }
 
-    private func scale(for display: SCDisplay) -> Double {
-        guard let screen = NSScreen.screens.first(where: { DisplayGeometry.displayID(for: $0) == display.displayID }) else { return 1 }
-        return screen.backingScaleFactor
+    private func capturePixelSize(
+        for filter: SCContentFilter,
+        fallbackPointSize: CGSize,
+        fallbackScale: CGFloat
+    ) -> CGSize {
+        let pointSize = filter.contentRect.width > 0 && filter.contentRect.height > 0
+            ? filter.contentRect.size
+            : fallbackPointSize
+        let scale = filter.pointPixelScale > 0
+            ? CGFloat(filter.pointPixelScale)
+            : fallbackScale
+        return DisplayGeometry.pixelSize(from: pointSize, scale: scale)
     }
 
     private func makeConfiguration(width: Int, height: Int, includeCursor: Bool) -> SCStreamConfiguration {
@@ -203,25 +233,11 @@ final class ScreenCaptureService: CaptureService, @unchecked Sendable {
         configuration.showsCursor = includeCursor
         configuration.capturesAudio = false
         configuration.ignoreShadowsSingleWindow = false
-        configuration.colorSpaceName = CGColorSpace.sRGB
+        configuration.captureResolution = .best
+        configuration.scalesToFit = false
+        configuration.preservesAspectRatio = true
+        configuration.colorSpaceName = CGColorSpace.displayP3
         configuration.pixelFormat = kCVPixelFormatType_32BGRA
         return configuration
-    }
-
-    private func normalizedSRGB(_ image: CGImage) -> CGImage {
-        guard image.colorSpace?.name != CGColorSpace.sRGB else { return image }
-        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
-              let context = CGContext(
-                data: nil,
-                width: image.width,
-                height: image.height,
-                bitsPerComponent: 8,
-                bytesPerRow: 0,
-                space: colorSpace,
-                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-              ) else { return image }
-        context.interpolationQuality = .none
-        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
-        return context.makeImage() ?? image
     }
 }

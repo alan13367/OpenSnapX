@@ -4,16 +4,26 @@ import ImageIO
 import UniformTypeIdentifiers
 
 enum ImageCodec {
-    static func data(from image: CGImage, format: ExportFormat, quality: Double = 0.9) throws -> Data {
+    static func dpi(forDisplayScale displayScale: Double) -> Double {
+        72 * max(1, displayScale)
+    }
+
+    static func data(
+        from image: CGImage,
+        format: ExportFormat,
+        quality: Double = 0.9,
+        dpi: Double? = nil
+    ) throws -> Data {
         let data = NSMutableData()
         let type = format == .png ? UTType.png.identifier : UTType.jpeg.identifier
         guard let destination = CGImageDestinationCreateWithData(data, type as CFString, 1, nil) else {
             throw OpenSnapXError.captureFailed("Could not create an image encoder.")
         }
-        let properties: [CFString: Any] = format == .jpeg
-            ? [kCGImageDestinationLossyCompressionQuality: quality]
-            : [:]
-        CGImageDestinationAddImage(destination, image, properties as CFDictionary)
+        CGImageDestinationAddImage(
+            destination,
+            image,
+            encodingProperties(format: format, quality: quality, dpi: dpi) as CFDictionary
+        )
         guard CGImageDestinationFinalize(destination) else {
             throw OpenSnapXError.captureFailed("Could not encode the image.")
         }
@@ -24,16 +34,18 @@ enum ImageCodec {
         _ image: CGImage,
         to url: URL,
         format: ExportFormat,
-        quality: Double = 0.9
+        quality: Double = 0.9,
+        dpi: Double? = nil
     ) throws {
         let type = format == .png ? UTType.png.identifier : UTType.jpeg.identifier
         guard let destination = CGImageDestinationCreateWithURL(url as CFURL, type as CFString, 1, nil) else {
             throw OpenSnapXError.captureFailed("Could not create an image encoder.")
         }
-        let properties: [CFString: Any] = format == .jpeg
-            ? [kCGImageDestinationLossyCompressionQuality: quality]
-            : [:]
-        CGImageDestinationAddImage(destination, image, properties as CFDictionary)
+        CGImageDestinationAddImage(
+            destination,
+            image,
+            encodingProperties(format: format, quality: quality, dpi: dpi) as CFDictionary
+        )
         guard CGImageDestinationFinalize(destination) else {
             throw OpenSnapXError.captureFailed("Could not encode the image.")
         }
@@ -66,7 +78,7 @@ enum ImageCodec {
         let width = Int(pixelSize.width.rounded())
         let height = Int(pixelSize.height.rounded())
         guard width != image.width || height != image.height else { return image }
-        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+        guard let colorSpace = image.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB),
               let context = CGContext(
                 data: nil,
                 width: width,
@@ -99,6 +111,22 @@ enum ImageCodec {
             height: max(1, Int((Double(image.height) * scale).rounded()))
         )
         return try resized(image, to: size)
+    }
+
+    private static func encodingProperties(
+        format: ExportFormat,
+        quality: Double,
+        dpi: Double?
+    ) -> [CFString: Any] {
+        var properties: [CFString: Any] = [:]
+        if format == .jpeg {
+            properties[kCGImageDestinationLossyCompressionQuality] = quality
+        }
+        if let dpi, dpi.isFinite, dpi > 0 {
+            properties[kCGImagePropertyDPIWidth] = dpi
+            properties[kCGImagePropertyDPIHeight] = dpi
+        }
+        return properties
     }
 }
 

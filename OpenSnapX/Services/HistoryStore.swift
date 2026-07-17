@@ -52,7 +52,8 @@ actor LocalHistoryStore: HistoryStore {
             try ImageCodec.write(
                 result.image,
                 to: temporaryURL.appendingPathComponent("source.png"),
-                format: .png
+                format: .png,
+                dpi: ImageCodec.dpi(forDisplayScale: result.displayScale)
             )
             let thumbnail = try ImageCodec.thumbnail(from: result.image)
             try ImageCodec.write(

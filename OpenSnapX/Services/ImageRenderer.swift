@@ -16,19 +16,30 @@ struct CoreGraphicsImageRenderer: ImageRenderer {
         let cropAnnotation = session.annotations.last(where: { $0.kind == .crop })
         let sourceBounds = CGRect(x: 0, y: 0, width: sourceImage.width, height: sourceImage.height)
         let crop = cropAnnotation?.frame.cgRect.intersection(sourceBounds).integral ?? sourceBounds
-        guard crop.width > 0, crop.height > 0,
-              let cropped = sourceImage.cropping(to: CGRect(
+        guard crop.width > 0, crop.height > 0 else {
+            throw OpenSnapXError.captureFailed("The crop is empty.")
+        }
+        let cropped: CGImage
+        if crop == sourceBounds {
+            cropped = sourceImage
+        } else {
+            guard let result = sourceImage.cropping(to: CGRect(
                 x: crop.minX,
                 y: sourceBounds.height - crop.maxY,
                 width: crop.width,
                 height: crop.height
-              )) else { throw OpenSnapXError.captureFailed("The crop is empty.") }
+            )) else { throw OpenSnapXError.captureFailed("The crop is empty.") }
+            cropped = result
+        }
 
-        let annotated = try drawAnnotations(
-            on: cropped,
-            annotations: session.annotations.filter { $0.kind != .crop },
-            cropOrigin: crop.origin
-        )
+        let visibleAnnotations = session.annotations.filter { $0.kind != .crop }
+        let annotated = visibleAnnotations.isEmpty
+            ? cropped
+            : try drawAnnotations(
+                on: cropped,
+                annotations: visibleAnnotations,
+                cropOrigin: crop.origin
+            )
         let final = session.manifest.backdrop.isEnabled
             ? try drawBackdrop(around: annotated, configuration: session.manifest.backdrop)
             : annotated
@@ -36,7 +47,7 @@ struct CoreGraphicsImageRenderer: ImageRenderer {
     }
 
     private func drawAnnotations(on source: CGImage, annotations: [Annotation], cropOrigin: CGPoint) throws -> CGImage {
-        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+        guard let colorSpace = source.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB),
               let context = CGContext(
                 data: nil,
                 width: source.width,
@@ -329,7 +340,7 @@ struct CoreGraphicsImageRenderer: ImageRenderer {
         case .sixteenByNine:
             outputSize = fittedCanvas(content: naturalSize, aspect: 16.0 / 9.0)
         }
-        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+        guard let colorSpace = image.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB),
               let context = CGContext(
                 data: nil,
                 width: Int(ceil(outputSize.width)),

@@ -197,7 +197,15 @@ final class AppCoordinator: NSObject {
                         do {
                             let stitched = try await controller.start(request: request)
                             scrollingController = nil
-                            result = CaptureResult(image: stitched.image, mode: .scrolling, displayScale: 1, sourceRect: selection.pixelRect)
+                            let displayScale = NSScreen.screens.first {
+                                DisplayGeometry.displayID(for: $0) == selection.displayID
+                            }?.backingScaleFactor ?? 1
+                            result = CaptureResult(
+                                image: stitched.image,
+                                mode: .scrolling,
+                                displayScale: displayScale,
+                                sourceRect: selection.pixelRect
+                            )
                         } catch {
                             scrollingController = nil
                             throw error
@@ -361,8 +369,14 @@ final class AppCoordinator: NSObject {
     @objc private func showHistory() {
         let controller = historyController ?? HistoryWindowController()
         controller.onOpen = { [weak self] id in self?.openEditor(id: id) }
-        controller.onCopy = { [weak self] id in self?.withHistoryImage(id: id) { self?.exportService.copy($0) } }
-        controller.onPin = { [weak self] id in self?.withHistoryImage(id: id) { self?.pinnedController.pin($0) } }
+        controller.onCopy = { [weak self] id in
+            self?.withHistoryImage(id: id) { image, displayScale in
+                await self?.exportService.copy(image, displayScale: displayScale)
+            }
+        }
+        controller.onPin = { [weak self] id in
+            self?.withHistoryImage(id: id) { image, _ in self?.pinnedController.pin(image) }
+        }
         controller.onDelete = { [weak self] ids in self?.deleteHistory(ids: ids) }
         historyController = controller
         Task { await refreshHistoryWindow(controller); controller.show() }
@@ -407,7 +421,10 @@ final class AppCoordinator: NSObject {
         openEditor(id: id)
     }
 
-    private func withHistoryImage(id: UUID, action: @escaping (CGImage) -> Void) {
+    private func withHistoryImage(
+        id: UUID,
+        action: @escaping (CGImage, Double) async -> Void
+    ) {
         Task {
             do {
                 let (session, payload) = try await historyStore.load(id: id)
@@ -415,7 +432,7 @@ final class AppCoordinator: NSObject {
                 let rendered = try await Task.detached(priority: .userInitiated) {
                     try renderer.render(source: payload, session: session, options: ExportOptions()).image
                 }.value
-                action(rendered)
+                await action(rendered, session.manifest.displayScale)
             } catch { present(error) }
         }
     }

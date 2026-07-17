@@ -28,7 +28,7 @@ struct AccelerateScrollingCaptureEngine: ScrollingCaptureEngine {
         let totalHeight = first.image.height + zip(frames.dropFirst(), matches).reduce(0) { partial, item in
             partial + item.0.image.height - item.1.overlapRows
         }
-        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+        guard let colorSpace = first.image.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB),
               let context = CGContext(
                 data: nil,
                 width: width,

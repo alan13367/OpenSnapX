@@ -4,6 +4,33 @@ import XCTest
 @testable import OpenSnapX
 
 final class ImageRendererTests: XCTestCase {
+    func testAnnotatedRenderPreservesWideColorProfile() throws {
+        let source = try solidImage(
+            width: 80,
+            height: 60,
+            colorSpace: CGColorSpace(name: CGColorSpace.displayP3)!
+        )
+        let session = CaptureSession(
+            manifest: CaptureManifest(
+                id: UUID(), createdAt: .now, modifiedAt: .now, captureMode: .region,
+                pixelWidth: 80, pixelHeight: 60, displayScale: 2
+            ),
+            annotations: [Annotation(
+                kind: .rectangle,
+                frame: CanvasRect(CGRect(x: 10, y: 10, width: 30, height: 20))
+            )],
+            ocrResults: []
+        )
+
+        let output = try CoreGraphicsImageRenderer().render(
+            source: ImagePayload(image: source),
+            session: session,
+            options: ExportOptions()
+        ).image
+
+        XCTAssertEqual(output.colorSpace?.name, CGColorSpace.displayP3)
+    }
+
     func testRedactionIsFlattenedIntoRenderedPixels() throws {
         let source = try solidImage(width: 80, height: 80)
         let redact = Annotation(
