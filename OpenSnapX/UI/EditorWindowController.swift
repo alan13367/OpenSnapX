@@ -91,6 +91,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     private var persistTask: Task<Void, Never>?
     private var transientNoticeTask: Task<Void, Never>?
     private var keyMonitor: Any?
+    private var mouseMonitor: Any?
     private var backdropPanelController: BackdropPanelController?
     private var transientNotice: EditorTransientNoticeView?
     private var isDiscardingCapture = false
@@ -135,6 +136,11 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
             guard let self, self.window?.isKeyWindow == true else { return event }
             return self.handleLocalKeyDown(event)
         }
+        mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+            guard let self, event.window === self.window else { return event }
+            self.canvas.commitTextEditingIfClickIsOutside(event)
+            return event
+        }
     }
 
     required init?(coder: NSCoder) { nil }
@@ -161,9 +167,14 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
+        canvas.commitTextEditing()
         if let keyMonitor {
             NSEvent.removeMonitor(keyMonitor)
             self.keyMonitor = nil
+        }
+        if let mouseMonitor {
+            NSEvent.removeMonitor(mouseMonitor)
+            self.mouseMonitor = nil
         }
         persistTask?.cancel()
         transientNoticeTask?.cancel()
@@ -678,8 +689,15 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         schedulePersist()
     }
 
-    @objc private func undo() { window?.undoManager?.undo() }
-    @objc private func redo() { window?.undoManager?.redo() }
+    @objc private func undo() {
+        canvas.commitTextEditing()
+        window?.undoManager?.undo()
+    }
+
+    @objc private func redo() {
+        canvas.commitTextEditing()
+        window?.undoManager?.redo()
+    }
 
     private func confirmDiscardCapture() {
         guard let window, !isDiscardingCapture else { return }
@@ -823,6 +841,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func renderedImage() async throws -> CGImage {
+        canvas.commitTextEditing()
         let renderer = self.renderer
         let source = ImagePayload(image: sourceImage)
         let session = self.session
@@ -1132,8 +1151,13 @@ struct AnnotationCanvasGeometry {
 }
 
 @MainActor
-final class EditorCanvasView: NSView {
-    var tool: EditorTool = .select
+final class EditorCanvasView: NSView, NSTextViewDelegate {
+    var tool: EditorTool = .select {
+        didSet {
+            if oldValue != tool, textEditor != nil { commitTextEditing() }
+            if tool != .select && tool != .text { hideTextToolbar() }
+        }
+    }
     var style = AnnotationStyle()
     var annotations: [Annotation] {
         didSet {
@@ -1181,6 +1205,13 @@ final class EditorCanvasView: NSView {
     private var selectedOCRIDs = Set<UUID>()
     private var copiedAnnotation: Annotation?
     private var counter = 1
+    private var textEditor: InlineTextView?
+    private var editingTextID: UUID?
+    private var textMinimumHeight: CGFloat = 0
+    private var textEditingOriginalAnnotation: Annotation?
+    private var isEditingNewText = false
+    private var textToolbarPopover: NSPopover?
+    private var textToolbarController: TextFormattingToolbarController?
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
@@ -1199,6 +1230,8 @@ final class EditorCanvasView: NSView {
     required init?(coder: NSCoder) { nil }
 
     func replaceEdits(annotations: [Annotation], ocrResults: [OCRResult], isOCRSelectionActive: Bool) {
+        discardTextEditingOverlay()
+        hideTextToolbar()
         draft = nil
         selectedID = nil
         dragStart = nil
@@ -1236,6 +1269,17 @@ final class EditorCanvasView: NSView {
             return
         }
 
+        if textEditor != nil { commitTextEditing() }
+        if tool == .select,
+           event.clickCount >= 2,
+           let textAnnotation = annotation(at: point),
+           textAnnotation.kind == .text {
+            selectedID = textAnnotation.id
+            beginTextEditing(annotationID: textAnnotation.id, selectAll: false)
+            needsDisplay = true
+            return
+        }
+
         dragStart = point
         didModifySelection = false
         if tool == .select {
@@ -1250,14 +1294,17 @@ final class EditorCanvasView: NSView {
             if let selectedID, let selected = annotations.first(where: { $0.id == selectedID }) {
                 originalFrame = selected.frame.cgRect
                 originalPoints = selected.points
+                if selected.kind != .text { hideTextToolbar() }
             } else {
                 originalFrame = nil
                 originalPoints = []
+                hideTextToolbar()
             }
         } else if let kind = tool.annotationKind {
+            hideTextToolbar()
             draft = Annotation(kind: kind, frame: CanvasRect(CGRect(origin: point, size: .zero)), points: [CanvasPoint(point)], style: style)
             if kind == .counter { draft?.counter = counter }
-            if kind == .text { draft?.text = "Text" }
+            if kind == .text { draft?.text = "" }
         }
         needsDisplay = true
     }
@@ -1343,14 +1390,34 @@ final class EditorCanvasView: NSView {
         }
         if tool == .select {
             if didModifySelection { onAnnotationsChanged?(annotations) }
+            if let selectedID,
+               annotations.first(where: { $0.id == selectedID })?.kind == .text {
+                showTextToolbar(for: selectedID)
+            }
             return
         }
         guard var draft else { return }
         self.draft = nil
+        if draft.kind == .text {
+            var frame = draft.frame.cgRect
+            if frame.width < 4 && frame.height < 4 {
+                frame = CGRect(x: frame.minX, y: frame.minY, width: 240, height: max(38, style.fontSize * 1.45))
+            } else {
+                frame.size.width = max(80, frame.width)
+                frame.size.height = max(style.fontSize * 1.45, frame.height)
+            }
+            frame.size.width = min(frame.width, bounds.maxX - frame.minX)
+            frame.size.height = min(frame.height, bounds.maxY - frame.minY)
+            draft.frame = CanvasRect(frame)
+            draft.richText = RichTextDocument(string: "", runs: [])
+            annotations.append(draft)
+            selectedID = draft.id
+            beginTextEditing(annotationID: draft.id, selectAll: false, isNew: true)
+            return
+        }
         if draft.frame.cgRect.width < 2 && draft.frame.cgRect.height < 2 {
             draft.frame = CanvasRect(CGRect(x: draft.frame.x - 16, y: draft.frame.y - 16, width: 32, height: 32))
         }
-        if draft.kind == .text, let text = requestText(), !text.isEmpty { draft.text = text }
         if draft.kind == .counter { counter += 1 }
         annotations.append(draft)
         selectedID = draft.id
@@ -1362,7 +1429,22 @@ final class EditorCanvasView: NSView {
             guard let selectedID else { return }
             annotations.removeAll { $0.id == selectedID }
             self.selectedID = nil
+            hideTextToolbar()
             onAnnotationsChanged?(annotations)
+        } else if [123, 124, 125, 126].contains(event.keyCode),
+                  let selectedID,
+                  let index = annotations.firstIndex(where: { $0.id == selectedID }) {
+            let amount: CGFloat = event.modifierFlags.contains(.shift) ? 10 : 1
+            let delta: CGPoint
+            switch event.keyCode {
+            case 123: delta = CGPoint(x: -amount, y: 0)
+            case 124: delta = CGPoint(x: amount, y: 0)
+            case 125: delta = CGPoint(x: 0, y: amount)
+            default: delta = CGPoint(x: 0, y: -amount)
+            }
+            annotations[index] = AnnotationCanvasGeometry.translated(annotations[index], by: delta)
+            onAnnotationsChanged?(annotations)
+            if annotations[index].kind == .text { showTextToolbar(for: selectedID) }
         } else if event.modifierFlags.contains(.command), event.charactersIgnoringModifiers == "c",
                   let selectedID, let selected = annotations.first(where: { $0.id == selectedID }) {
             copiedAnnotation = selected
@@ -1428,10 +1510,12 @@ final class EditorCanvasView: NSView {
             for point in annotation.points.dropFirst() { path.line(to: point.cgPoint) }
             path.stroke()
         case .text:
-            (annotation.text ?? "Text").draw(in: frame, withAttributes: [
-                .font: NSFont.systemFont(ofSize: annotation.style.fontSize, weight: .medium),
-                .foregroundColor: color
-            ])
+            if annotation.id != editingTextID {
+                RichTextBridge.attributedString(for: annotation).draw(
+                    with: frame.insetBy(dx: 2, dy: 2),
+                    options: [.usesLineFragmentOrigin, .usesFontLeading]
+                )
+            }
         case .counter:
             color.setFill(); NSBezierPath(ovalIn: frame).fill()
             let value = String(annotation.counter ?? 1)
@@ -1594,15 +1678,280 @@ final class EditorCanvasView: NSView {
         )
     }
 
-    private func requestText() -> String? {
-        let alert = NSAlert()
-        alert.messageText = "Text Annotation"
-        let field = NSTextField(string: "Text")
-        field.frame = CGRect(x: 0, y: 0, width: 280, height: 24)
-        alert.accessoryView = field
-        alert.addButton(withTitle: "Add")
-        alert.addButton(withTitle: "Cancel")
-        return alert.runModal() == .alertFirstButtonReturn ? field.stringValue : nil
+    func commitTextEditingIfClickIsOutside(_ event: NSEvent) {
+        guard let editor = textEditor else { return }
+        let point = convert(event.locationInWindow, from: nil)
+        if !editor.frame.contains(point) { commitTextEditing() }
+    }
+
+    func commitTextEditing() {
+        guard let editingTextID,
+              let index = annotations.firstIndex(where: { $0.id == editingTextID }) else {
+            discardTextEditingOverlay()
+            return
+        }
+        syncTextAnnotation(resizeToFit: true)
+        let original = textEditingOriginalAnnotation
+        let wasNew = isEditingNewText
+        let isEmpty = annotations[index].text?.isEmpty != false
+
+        discardTextEditingOverlay()
+        if isEmpty {
+            annotations.remove(at: index)
+            selectedID = nil
+            hideTextToolbar()
+            if !wasNew { onAnnotationsChanged?(annotations) }
+        } else {
+            selectedID = editingTextID
+            if wasNew || original != annotations[index] {
+                onAnnotationsChanged?(annotations)
+            }
+            showTextToolbar(for: editingTextID)
+        }
+        window?.makeFirstResponder(self)
+        needsDisplay = true
+    }
+
+    private func beginTextEditing(annotationID: UUID, selectAll: Bool, isNew: Bool = false) {
+        if editingTextID == annotationID, let textEditor {
+            window?.makeFirstResponder(textEditor)
+            if selectAll { textEditor.selectAll(nil) }
+            return
+        }
+        if textEditor != nil { commitTextEditing() }
+        guard let annotation = annotations.first(where: { $0.id == annotationID }),
+              annotation.kind == .text else { return }
+
+        let editor = InlineTextView(frame: annotation.frame.cgRect)
+        editor.drawsBackground = false
+        editor.isRichText = true
+        editor.importsGraphics = false
+        editor.allowsUndo = true
+        editor.isVerticallyResizable = true
+        editor.isHorizontallyResizable = false
+        editor.minSize = CGSize(width: annotation.frame.width, height: annotation.frame.height)
+        editor.maxSize = CGSize(width: annotation.frame.width, height: .greatestFiniteMagnitude)
+        editor.textContainerInset = CGSize(width: 2, height: 2)
+        editor.textContainer?.lineFragmentPadding = 0
+        editor.textContainer?.widthTracksTextView = true
+        editor.textContainer?.heightTracksTextView = false
+        let attributedText = RichTextBridge.attributedString(for: annotation)
+        editor.textStorage?.setAttributedString(attributedText)
+        if attributedText.length == 0 {
+            editor.typingAttributes = RichTextBridge.attributes(for: RichTextBridge.defaultStyle(for: annotation))
+        }
+        editor.delegate = self
+        editor.onEscape = { [weak self] in self?.commitTextEditing() }
+        editor.setAccessibilityLabel("Text annotation editor")
+
+        textEditor = editor
+        editingTextID = annotationID
+        textMinimumHeight = annotation.frame.height
+        textEditingOriginalAnnotation = annotation
+        isEditingNewText = isNew
+        selectedID = annotationID
+        addSubview(editor)
+        window?.makeFirstResponder(editor)
+        if selectAll {
+            editor.selectAll(nil)
+        } else {
+            editor.setSelectedRange(NSRange(location: editor.string.utf16.count, length: 0))
+        }
+        resizeTextEditorToFit()
+        showTextToolbar(for: annotationID)
+        needsDisplay = true
+    }
+
+    private func discardTextEditingOverlay() {
+        textEditor?.delegate = nil
+        textEditor?.removeFromSuperview()
+        textEditor = nil
+        editingTextID = nil
+        textMinimumHeight = 0
+        textEditingOriginalAnnotation = nil
+        isEditingNewText = false
+    }
+
+    func textDidChange(_ notification: Notification) {
+        syncTextAnnotation(resizeToFit: true)
+        refreshTextToolbar()
+    }
+
+    func textViewDidChangeSelection(_ notification: Notification) {
+        refreshTextToolbar()
+    }
+
+    private func syncTextAnnotation(resizeToFit: Bool) {
+        guard let editor = textEditor,
+              let editingTextID,
+              let index = annotations.firstIndex(where: { $0.id == editingTextID }) else { return }
+        if resizeToFit { resizeTextEditorToFit() }
+        let fallback = RichTextBridge.defaultStyle(for: annotations[index])
+        let document = RichTextBridge.document(from: editor.attributedString(), fallback: fallback)
+        annotations[index].text = document.string
+        annotations[index].richText = document
+        annotations[index].frame = CanvasRect(editor.frame)
+        needsDisplay = true
+    }
+
+    private func resizeTextEditorToFit() {
+        guard let editor = textEditor,
+              let layoutManager = editor.layoutManager,
+              let textContainer = editor.textContainer else { return }
+        layoutManager.ensureLayout(for: textContainer)
+        let usedHeight = ceil(layoutManager.usedRect(for: textContainer).height + editor.textContainerInset.height * 2)
+        var frame = editor.frame
+        frame.size.height = min(
+            max(textMinimumHeight, usedHeight, 8),
+            max(8, bounds.maxY - frame.minY)
+        )
+        editor.frame = frame
+    }
+
+    private func showTextToolbar(for annotationID: UUID) {
+        guard let annotation = annotations.first(where: { $0.id == annotationID }),
+              annotation.kind == .text,
+              window != nil else { return }
+        hideTextToolbar()
+        let controller = TextFormattingToolbarController(canvas: self)
+        let popover = NSPopover()
+        popover.behavior = .applicationDefined
+        popover.animates = false
+        popover.contentViewController = controller
+        textToolbarController = controller
+        textToolbarPopover = popover
+        controller.loadViewIfNeeded()
+        controller.update(style: currentTextStyle())
+        popover.show(
+            relativeTo: annotation.frame.cgRect.insetBy(dx: -3, dy: -3),
+            of: self,
+            preferredEdge: .minY
+        )
+    }
+
+    private func hideTextToolbar() {
+        textToolbarPopover?.close()
+        textToolbarPopover = nil
+        textToolbarController = nil
+    }
+
+    private func refreshTextToolbar() {
+        textToolbarController?.update(style: currentTextStyle())
+    }
+
+    fileprivate func currentTextStyle() -> RichTextStyle? {
+        if let editor = textEditor {
+            let fallback: RichTextStyle
+            if let editingTextID,
+               let annotation = annotations.first(where: { $0.id == editingTextID }) {
+                fallback = RichTextBridge.defaultStyle(for: annotation)
+            } else {
+                fallback = RichTextStyle()
+            }
+            let storage = editor.textStorage ?? NSTextStorage()
+            var location = editor.selectedRange().location
+            if storage.length > 0 { location = min(location, storage.length - 1) }
+            guard storage.length > 0 else {
+                return RichTextBridge.style(from: editor.typingAttributes, fallback: fallback)
+            }
+            return RichTextBridge.style(
+                from: storage.attributes(at: location, effectiveRange: nil),
+                fallback: fallback
+            )
+        }
+        guard let selectedID,
+              let annotation = annotations.first(where: { $0.id == selectedID }) else { return nil }
+        return annotation.richText?.runs.first?.style ?? RichTextBridge.defaultStyle(for: annotation)
+    }
+
+    fileprivate func setTextFontFamily(_ family: String) {
+        mutateSelectedTextStyle { $0.fontFamily = family }
+    }
+
+    fileprivate func setTextFontSize(_ size: CGFloat) {
+        mutateSelectedTextStyle { $0.fontSize = min(max(1, size), 512) }
+    }
+
+    fileprivate func toggleTextBold() {
+        let value = !(currentTextStyle()?.isBold ?? false)
+        mutateSelectedTextStyle { $0.isBold = value }
+    }
+
+    fileprivate func toggleTextItalic() {
+        let value = !(currentTextStyle()?.isItalic ?? false)
+        mutateSelectedTextStyle { $0.isItalic = value }
+    }
+
+    fileprivate func toggleTextUnderline() {
+        let value = !(currentTextStyle()?.isUnderlined ?? false)
+        mutateSelectedTextStyle { $0.isUnderlined = value }
+    }
+
+    fileprivate func toggleTextStrikethrough() {
+        let value = !(currentTextStyle()?.isStruckThrough ?? false)
+        mutateSelectedTextStyle { $0.isStruckThrough = value }
+    }
+
+    fileprivate func setTextForegroundColor(_ color: NSColor) {
+        mutateSelectedTextStyle { $0.foregroundColor = RGBAColor(color) }
+    }
+
+    fileprivate func toggleTextBackground() {
+        let current = currentTextStyle()?.backgroundColor
+        mutateSelectedTextStyle {
+            $0.backgroundColor = current == nil
+                ? RGBAColor(red: 1, green: 0.86, blue: 0.2, alpha: 0.65)
+                : nil
+        }
+    }
+
+    fileprivate func setTextBackgroundColor(_ color: NSColor) {
+        mutateSelectedTextStyle { $0.backgroundColor = RGBAColor(color) }
+    }
+
+    fileprivate func setTextAlignment(_ alignment: RichTextAlignment) {
+        mutateSelectedTextStyle(usesParagraphRange: true) { $0.alignment = alignment }
+    }
+
+    private func mutateSelectedTextStyle(
+        usesParagraphRange: Bool = false,
+        _ mutation: (inout RichTextStyle) -> Void
+    ) {
+        guard let selectedID,
+              annotations.first(where: { $0.id == selectedID })?.kind == .text else { return }
+        if textEditor == nil {
+            beginTextEditing(annotationID: selectedID, selectAll: true)
+        }
+        guard let editor = textEditor,
+              let editingTextID,
+              let annotation = annotations.first(where: { $0.id == editingTextID }) else { return }
+        let fallback = RichTextBridge.defaultStyle(for: annotation)
+        let selectedRange = editor.selectedRange()
+        let formattingRange = usesParagraphRange
+            ? (editor.string as NSString).paragraphRange(for: selectedRange)
+            : selectedRange
+
+        if formattingRange.length == 0 {
+            var style = RichTextBridge.style(from: editor.typingAttributes, fallback: currentTextStyle() ?? fallback)
+            mutation(&style)
+            editor.typingAttributes = RichTextBridge.attributes(for: style)
+        } else {
+            let storage = editor.textStorage ?? NSTextStorage()
+            var replacements: [(NSRange, [NSAttributedString.Key: Any])] = []
+            storage.enumerateAttributes(in: formattingRange, options: []) { values, range, _ in
+                var style = RichTextBridge.style(from: values, fallback: fallback)
+                mutation(&style)
+                replacements.append((range, RichTextBridge.attributes(for: style)))
+            }
+            storage.beginEditing()
+            for (range, attributes) in replacements {
+                storage.setAttributes(attributes, range: range)
+            }
+            storage.endEditing()
+            editor.setSelectedRange(selectedRange)
+        }
+        syncTextAnnotation(resizeToFit: true)
+        refreshTextToolbar()
     }
 
     private func resizeHandle(for frame: CGRect) -> CGRect {
@@ -1611,6 +1960,200 @@ final class EditorCanvasView: NSView {
 
     private func clamped(_ point: CGPoint) -> CGPoint {
         CGPoint(x: min(max(0, point.x), bounds.maxX), y: min(max(0, point.y), bounds.maxY))
+    }
+}
+
+@MainActor
+private final class InlineTextView: NSTextView {
+    var onEscape: (() -> Void)?
+
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 53 {
+            onEscape?()
+        } else {
+            super.keyDown(with: event)
+        }
+    }
+}
+
+@MainActor
+private final class TextFormattingToolbarController: NSViewController {
+    private weak var canvas: EditorCanvasView?
+    private let fontPopup = NSPopUpButton()
+    private let sizeCombo = NSComboBox()
+    private let boldButton = NSButton(title: "B", target: nil, action: nil)
+    private let italicButton = NSButton(title: "I", target: nil, action: nil)
+    private let underlineButton = NSButton(title: "U", target: nil, action: nil)
+    private let strikeButton = NSButton(title: "S", target: nil, action: nil)
+    private let backgroundButton = NSButton(title: "H", target: nil, action: nil)
+    private let foregroundWell = NSColorWell()
+    private let backgroundWell = NSColorWell()
+    private let alignment = NSSegmentedControl(
+        images: ["text.alignleft", "text.aligncenter", "text.alignright", "text.justify"]
+            .compactMap { NSImage(systemSymbolName: $0, accessibilityDescription: nil) },
+        trackingMode: .selectOne,
+        target: nil,
+        action: nil
+    )
+    private var isUpdating = false
+
+    init(canvas: EditorCanvasView) {
+        self.canvas = canvas
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func loadView() {
+        let content = NSView(frame: CGRect(x: 0, y: 0, width: 594, height: 48))
+        view = content
+
+        fontPopup.addItems(withTitles: NSFontManager.shared.availableFontFamilies.sorted())
+        fontPopup.target = self
+        fontPopup.action = #selector(fontChanged)
+        fontPopup.toolTip = "Font family"
+        fontPopup.setAccessibilityLabel("Font family")
+        fontPopup.widthAnchor.constraint(equalToConstant: 164).isActive = true
+
+        sizeCombo.addItems(withObjectValues: [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 64, 72])
+        sizeCombo.isEditable = true
+        sizeCombo.target = self
+        sizeCombo.action = #selector(sizeChanged)
+        sizeCombo.toolTip = "Font size"
+        sizeCombo.setAccessibilityLabel("Font size")
+        sizeCombo.widthAnchor.constraint(equalToConstant: 56).isActive = true
+
+        configureToggle(boldButton, label: "Bold", action: #selector(toggleBold))
+        boldButton.font = .boldSystemFont(ofSize: 13)
+        configureToggle(italicButton, label: "Italic", action: #selector(toggleItalic))
+        italicButton.font = NSFontManager.shared.convert(.systemFont(ofSize: 13), toHaveTrait: .italicFontMask)
+        configureToggle(underlineButton, label: "Underline", action: #selector(toggleUnderline))
+        underlineButton.attributedTitle = NSAttributedString(
+            string: "U",
+            attributes: [.underlineStyle: NSUnderlineStyle.single.rawValue]
+        )
+        configureToggle(strikeButton, label: "Strikethrough", action: #selector(toggleStrike))
+        strikeButton.attributedTitle = NSAttributedString(
+            string: "S",
+            attributes: [.strikethroughStyle: NSUnderlineStyle.single.rawValue]
+        )
+        configureToggle(backgroundButton, label: "Text background", action: #selector(toggleBackground))
+
+        configureColorWell(foregroundWell, label: "Text color", action: #selector(foregroundChanged))
+        configureColorWell(backgroundWell, label: "Background color", action: #selector(backgroundChanged))
+
+        alignment.target = self
+        alignment.action = #selector(alignmentChanged)
+        alignment.toolTip = "Text alignment"
+        alignment.setAccessibilityLabel("Text alignment")
+        alignment.widthAnchor.constraint(equalToConstant: 108).isActive = true
+        alignment.heightAnchor.constraint(equalToConstant: 26).isActive = true
+
+        let separator = NSBox()
+        separator.boxType = .separator
+        separator.widthAnchor.constraint(equalToConstant: 1).isActive = true
+        separator.heightAnchor.constraint(equalToConstant: 24).isActive = true
+
+        let stack = NSStackView(views: [
+            fontPopup, sizeCombo,
+            boldButton, italicButton, underlineButton, strikeButton,
+            separator, foregroundWell, backgroundButton, backgroundWell,
+            alignment
+        ])
+        stack.orientation = .horizontal
+        stack.alignment = .centerY
+        stack.spacing = 5
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 10),
+            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -10),
+            stack.centerYAnchor.constraint(equalTo: content.centerYAnchor)
+        ])
+    }
+
+    func update(style: RichTextStyle?) {
+        guard isViewLoaded, let style else { return }
+        isUpdating = true
+        if fontPopup.itemTitles.contains(style.fontFamily) {
+            fontPopup.selectItem(withTitle: style.fontFamily)
+        } else {
+            fontPopup.addItem(withTitle: style.fontFamily)
+            fontPopup.selectItem(withTitle: style.fontFamily)
+        }
+        sizeCombo.stringValue = String(format: "%g", style.fontSize)
+        boldButton.state = style.isBold ? .on : .off
+        italicButton.state = style.isItalic ? .on : .off
+        underlineButton.state = style.isUnderlined ? .on : .off
+        strikeButton.state = style.isStruckThrough ? .on : .off
+        backgroundButton.state = style.backgroundColor == nil ? .off : .on
+        foregroundWell.color = style.foregroundColor.nsColor
+        backgroundWell.color = style.backgroundColor?.nsColor
+            ?? NSColor(srgbRed: 1, green: 0.86, blue: 0.2, alpha: 0.65)
+        switch style.alignment {
+        case .left: alignment.selectedSegment = 0
+        case .center: alignment.selectedSegment = 1
+        case .right: alignment.selectedSegment = 2
+        case .justified: alignment.selectedSegment = 3
+        }
+        isUpdating = false
+    }
+
+    private func configureToggle(_ button: NSButton, label: String, action: Selector) {
+        button.setButtonType(.toggle)
+        button.bezelStyle = .texturedRounded
+        button.target = self
+        button.action = action
+        button.toolTip = label
+        button.setAccessibilityLabel(label)
+        button.widthAnchor.constraint(equalToConstant: 28).isActive = true
+        button.heightAnchor.constraint(equalToConstant: 26).isActive = true
+    }
+
+    private func configureColorWell(_ well: NSColorWell, label: String, action: Selector) {
+        well.colorWellStyle = .minimal
+        well.target = self
+        well.action = action
+        well.toolTip = label
+        well.setAccessibilityLabel(label)
+        well.widthAnchor.constraint(equalToConstant: 24).isActive = true
+        well.heightAnchor.constraint(equalToConstant: 24).isActive = true
+    }
+
+    @objc private func fontChanged() {
+        guard !isUpdating, let family = fontPopup.titleOfSelectedItem else { return }
+        canvas?.setTextFontFamily(family)
+    }
+
+    @objc private func sizeChanged() {
+        guard !isUpdating, let size = Double(sizeCombo.stringValue), size > 0 else { return }
+        canvas?.setTextFontSize(size)
+    }
+
+    @objc private func toggleBold() { if !isUpdating { canvas?.toggleTextBold() } }
+    @objc private func toggleItalic() { if !isUpdating { canvas?.toggleTextItalic() } }
+    @objc private func toggleUnderline() { if !isUpdating { canvas?.toggleTextUnderline() } }
+    @objc private func toggleStrike() { if !isUpdating { canvas?.toggleTextStrikethrough() } }
+    @objc private func toggleBackground() { if !isUpdating { canvas?.toggleTextBackground() } }
+
+    @objc private func foregroundChanged() {
+        if !isUpdating { canvas?.setTextForegroundColor(foregroundWell.color) }
+    }
+
+    @objc private func backgroundChanged() {
+        if !isUpdating { canvas?.setTextBackgroundColor(backgroundWell.color) }
+    }
+
+    @objc private func alignmentChanged() {
+        guard !isUpdating else { return }
+        let value: RichTextAlignment
+        switch alignment.selectedSegment {
+        case 1: value = .center
+        case 2: value = .right
+        case 3: value = .justified
+        default: value = .left
+        }
+        canvas?.setTextAlignment(value)
     }
 }
 

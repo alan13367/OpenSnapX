@@ -86,6 +86,45 @@ final class ModelAndGeometryTests: XCTestCase {
         XCTAssertTrue(session.ocrResults.isEmpty)
     }
 
+    func testRichTextAnnotationRoundTripsAllFormatting() throws {
+        let firstStyle = RichTextStyle(
+            fontFamily: "Helvetica",
+            fontSize: 28,
+            isBold: true,
+            isItalic: true,
+            isUnderlined: true,
+            isStruckThrough: true,
+            foregroundColor: RGBAColor(red: 0.1, green: 0.2, blue: 0.9, alpha: 1),
+            backgroundColor: RGBAColor(red: 1, green: 0.8, blue: 0.1, alpha: 0.6),
+            alignment: .center
+        )
+        let secondStyle = RichTextStyle(
+            fontFamily: "Menlo",
+            fontSize: 18,
+            foregroundColor: .black,
+            alignment: .right
+        )
+        let document = RichTextDocument(
+            string: "Styled text",
+            runs: [
+                RichTextRun(location: 0, length: 6, style: firstStyle),
+                RichTextRun(location: 6, length: 5, style: secondStyle)
+            ]
+        )
+        let annotation = Annotation(
+            kind: .text,
+            frame: CanvasRect(CGRect(x: 20, y: 30, width: 240, height: 80)),
+            text: document.string,
+            richText: document
+        )
+
+        let data = try JSONEncoder().encode(annotation)
+        let decoded = try JSONDecoder().decode(Annotation.self, from: data)
+
+        XCTAssertEqual(decoded, annotation)
+        XCTAssertEqual(decoded.richText, document)
+    }
+
     func testCaptureSessionRoundTripsVersionedAnnotations() throws {
         let annotation = Annotation(
             kind: .arrow,

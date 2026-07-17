@@ -137,7 +137,7 @@ struct CoreGraphicsImageRenderer: ImageRenderer {
             context.fillEllipse(in: frame)
             drawText(String(annotation.counter ?? 1), in: frame, color: .white, size: style.fontSize, context: context)
         case .text:
-            drawText(annotation.text ?? "Text", in: frame, color: style.strokeColor, size: style.fontSize, context: context)
+            drawRichText(annotation, in: frame, context: context)
         case .blur, .pixelate, .crop:
             break
         }
@@ -171,6 +171,149 @@ struct CoreGraphicsImageRenderer: ImageRenderer {
         CTLineDraw(line, context)
         context.restoreGState()
     }
+
+    private func drawRichText(_ annotation: Annotation, in frame: CGRect, context: CGContext) {
+        let fallback = RichTextStyle(
+            fontFamily: "SF Pro",
+            fontSize: annotation.style.fontSize,
+            foregroundColor: annotation.style.strokeColor
+        )
+        let document = annotation.richText ?? RichTextDocument(
+            string: annotation.text ?? "",
+            runs: []
+        )
+        guard !document.string.isEmpty, frame.width > 0, frame.height > 0 else { return }
+
+        let attributed = NSMutableAttributedString(
+            string: document.string,
+            attributes: coreTextAttributes(for: fallback)
+        )
+        for run in document.runs {
+            let location = min(max(0, run.location), attributed.length)
+            let length = min(max(0, run.length), attributed.length - location)
+            guard length > 0 else { continue }
+            attributed.setAttributes(
+                coreTextAttributes(for: run.style),
+                range: NSRange(location: location, length: length)
+            )
+        }
+
+        let textFrame = frame.insetBy(dx: 2, dy: 2)
+        guard textFrame.width > 0, textFrame.height > 0 else { return }
+        let framesetter = CTFramesetterCreateWithAttributedString(attributed)
+        let path = CGPath(rect: textFrame, transform: nil)
+        let coreTextFrame = CTFramesetterCreateFrame(
+            framesetter,
+            CFRange(location: 0, length: attributed.length),
+            path,
+            nil
+        )
+
+        context.saveGState()
+        context.clip(to: frame)
+        context.textMatrix = .identity
+        drawTextDecorations(in: coreTextFrame, context: context, drawBackgrounds: true)
+        CTFrameDraw(coreTextFrame, context)
+        drawTextDecorations(in: coreTextFrame, context: context, drawBackgrounds: false)
+        context.restoreGState()
+    }
+
+    private func coreTextAttributes(for style: RichTextStyle) -> [NSAttributedString.Key: Any] {
+        let baseFont = CTFontCreateWithName(style.fontFamily as CFString, max(1, style.fontSize), nil)
+        var traits: CTFontSymbolicTraits = []
+        if style.isBold { traits.insert(.traitBold) }
+        if style.isItalic { traits.insert(.traitItalic) }
+        let font = CTFontCreateCopyWithSymbolicTraits(
+            baseFont,
+            max(1, style.fontSize),
+            nil,
+            traits,
+            traits
+        ) ?? baseFont
+
+        var alignment: CTTextAlignment
+        switch style.alignment {
+        case .left: alignment = .left
+        case .center: alignment = .center
+        case .right: alignment = .right
+        case .justified: alignment = .justified
+        }
+        let paragraph = withUnsafePointer(to: &alignment) { pointer in
+            var setting = CTParagraphStyleSetting(
+                spec: .alignment,
+                valueSize: MemoryLayout<CTTextAlignment>.size,
+                value: pointer
+            )
+            return CTParagraphStyleCreate(&setting, 1)
+        }
+        var attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: style.foregroundColor.cgColor,
+            .paragraphStyle: paragraph,
+            .underlineStyle: style.isUnderlined ? NSUnderlineStyle.single.rawValue : 0,
+            Self.strikeMarkerKey: style.isStruckThrough
+        ]
+        if let background = style.backgroundColor {
+            attributes[Self.backgroundMarkerKey] = background.cgColor
+        }
+        return attributes
+    }
+
+    private func drawTextDecorations(in frame: CTFrame, context: CGContext, drawBackgrounds: Bool) {
+        let lines = CTFrameGetLines(frame) as? [CTLine] ?? []
+        guard !lines.isEmpty else { return }
+        var origins = Array(repeating: CGPoint.zero, count: lines.count)
+        CTFrameGetLineOrigins(frame, CFRange(location: 0, length: 0), &origins)
+
+        for (lineIndex, line) in lines.enumerated() {
+            for runValue in CTLineGetGlyphRuns(line) as? [CTRun] ?? [] {
+                let attributes = CTRunGetAttributes(runValue) as NSDictionary
+                var ascent: CGFloat = 0
+                var descent: CGFloat = 0
+                var leading: CGFloat = 0
+                let width = CGFloat(CTRunGetTypographicBounds(
+                    runValue,
+                    CFRange(location: 0, length: 0),
+                    &ascent,
+                    &descent,
+                    &leading
+                ))
+                guard width > 0 else { continue }
+                let range = CTRunGetStringRange(runValue)
+                let xOffset = CTLineGetOffsetForStringIndex(line, range.location, nil)
+                let origin = origins[lineIndex]
+
+                if drawBackgrounds,
+                   let colorValue = attributes[Self.backgroundMarkerKey.rawValue] {
+                    let color = colorValue as! CGColor
+                    context.setFillColor(color)
+                    context.fill(CGRect(
+                        x: origin.x + xOffset,
+                        y: origin.y - descent,
+                        width: width,
+                        height: ascent + descent + leading
+                    ))
+                } else if !drawBackgrounds,
+                          (attributes[Self.strikeMarkerKey.rawValue] as? Bool) == true {
+                    let color: CGColor
+                    if let colorValue = attributes[kCTForegroundColorAttributeName] {
+                        color = colorValue as! CGColor
+                    } else {
+                        color = CGColor(gray: 0, alpha: 1)
+                    }
+                    context.setStrokeColor(color)
+                    context.setLineWidth(max(1, ascent / 14))
+                    let y = origin.y + ascent * 0.32
+                    context.move(to: CGPoint(x: origin.x + xOffset, y: y))
+                    context.addLine(to: CGPoint(x: origin.x + xOffset + width, y: y))
+                    context.strokePath()
+                }
+            }
+        }
+    }
+
+    private static let backgroundMarkerKey = NSAttributedString.Key("OpenSnapXRichTextBackground")
+    private static let strikeMarkerKey = NSAttributedString.Key("OpenSnapXRichTextStrikethrough")
 
     private func drawBackdrop(around image: CGImage, configuration: BackdropConfiguration) throws -> CGImage {
         let padding = max(0, configuration.padding)

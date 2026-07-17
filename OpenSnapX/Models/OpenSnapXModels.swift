@@ -117,6 +117,37 @@ enum ArrowHeadStyle: String, Codable, Sendable {
     case none
 }
 
+enum RichTextAlignment: String, Codable, Hashable, Sendable {
+    case left
+    case center
+    case right
+    case justified
+}
+
+struct RichTextStyle: Codable, Hashable, Sendable {
+    var fontFamily = "SF Pro"
+    var fontSize: Double = 24
+    var isBold = false
+    var isItalic = false
+    var isUnderlined = false
+    var isStruckThrough = false
+    var foregroundColor: RGBAColor = .red
+    var backgroundColor: RGBAColor?
+    var alignment: RichTextAlignment = .left
+}
+
+struct RichTextRun: Codable, Hashable, Sendable {
+    /// UTF-16 offsets, matching the ranges used by NSTextStorage and Core Text.
+    var location: Int
+    var length: Int
+    var style: RichTextStyle
+}
+
+struct RichTextDocument: Codable, Hashable, Sendable {
+    var string: String
+    var runs: [RichTextRun]
+}
+
 struct AnnotationStyle: Codable, Hashable, Sendable {
     var strokeColor: RGBAColor = .red
     var fillColor: RGBAColor?
@@ -132,6 +163,7 @@ struct Annotation: Codable, Identifiable, Hashable, Sendable {
     var frame: CanvasRect
     var points: [CanvasPoint] = []
     var text: String?
+    var richText: RichTextDocument?
     var counter: Int?
     var style = AnnotationStyle()
 }
