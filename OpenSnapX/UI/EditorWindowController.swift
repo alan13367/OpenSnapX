@@ -77,6 +77,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     private let renderer: any ImageRenderer
     private let ocrService: any OCRService
     private let exportService: ExportService
+    private let onSessionSaved: (UUID) -> Void
     private let onDiscardCapture: (UUID) async throws -> Void
     private var initialPersistence: Task<Void, Error>?
     private let canvas: EditorCanvasView
@@ -107,6 +108,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         ocrService: any OCRService,
         exportService: ExportService,
         initialPersistence: Task<Void, Error>? = nil,
+        onSessionSaved: @escaping (UUID) -> Void,
         onDiscardCapture: @escaping (UUID) async throws -> Void
     ) {
         self.session = session
@@ -116,6 +118,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         self.ocrService = ocrService
         self.exportService = exportService
         self.initialPersistence = initialPersistence
+        self.onSessionSaved = onSessionSaved
         self.onDiscardCapture = onDiscardCapture
         canvas = EditorCanvasView(image: image, annotations: session.annotations, ocrResults: session.ocrResults)
         let window = NSWindow(
@@ -191,7 +194,10 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         let session = self.session
         Task {
             guard (try? await waitForInitialPersistence()) != nil else { return }
-            try? await historyStore.save(session)
+            do {
+                try await historyStore.save(session)
+                onSessionSaved(session.id)
+            } catch { return }
         }
     }
 
@@ -751,6 +757,12 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func handleLocalKeyDown(_ event: NSEvent) -> NSEvent? {
+        if event.keyCode == 53, canvas.tool != .select {
+            canvas.commitTextEditing()
+            selectTool(.select)
+            return nil
+        }
+
         // Shottr-style: Tab copies the active color hex when a text field is not focused.
         guard event.keyCode == 48,
               !(window?.firstResponder is NSTextView),
@@ -1008,7 +1020,11 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
             guard !Task.isCancelled,
                   (try? await waitForInitialPersistence()) != nil,
                   !Task.isCancelled else { return }
-            try? await historyStore.save(session)
+            do {
+                try await historyStore.save(session)
+                guard !Task.isCancelled else { return }
+                onSessionSaved(session.id)
+            } catch { return }
         }
     }
 

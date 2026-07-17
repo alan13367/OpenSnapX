@@ -16,9 +16,15 @@ actor LocalHistoryStore: HistoryStore {
     private let rootURL: URL
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
+    private let renderer: any ImageRenderer
 
-    init(fileManager: FileManager = .default, rootURL: URL? = nil) {
+    init(
+        fileManager: FileManager = .default,
+        rootURL: URL? = nil,
+        renderer: any ImageRenderer = CoreGraphicsImageRenderer()
+    ) {
         self.fileManager = fileManager
+        self.renderer = renderer
         if let rootURL {
             self.rootURL = rootURL
         } else {
@@ -88,7 +94,15 @@ actor LocalHistoryStore: HistoryStore {
         guard fileManager.fileExists(atPath: url.path) else { throw OpenSnapXError.invalidHistoryEntry }
         var updated = session
         updated.manifest.modifiedAt = Date()
+
+        let source = try ImageCodec.image(at: url.appendingPathComponent("source.png"))
+        let rendered = try renderer.render(
+            source: ImagePayload(image: source),
+            session: updated,
+            options: ExportOptions()
+        ).image
         try writeMetadata(updated, into: url)
+        try writeThumbnail(rendered, into: url)
     }
 
     func delete(id: UUID) async throws {
@@ -111,7 +125,25 @@ actor LocalHistoryStore: HistoryStore {
     }
 
     func thumbnail(id: UUID) async throws -> ImagePayload {
-        ImagePayload(image: try ImageCodec.image(at: packageURL(for: id).appendingPathComponent("thumbnail.jpg")))
+        let url = packageURL(for: id)
+        let thumbnailURL = url.appendingPathComponent("thumbnail.jpg")
+        let session = try readSession(at: url)
+
+        if let values = try? thumbnailURL.resourceValues(forKeys: [.contentModificationDateKey]),
+           let thumbnailDate = values.contentModificationDate,
+           thumbnailDate >= session.manifest.modifiedAt {
+            return ImagePayload(image: try ImageCodec.image(at: thumbnailURL))
+        }
+
+        // Older packages may have metadata edits but only the original-image thumbnail.
+        let source = try ImageCodec.image(at: url.appendingPathComponent("source.png"))
+        let rendered = try renderer.render(
+            source: ImagePayload(image: source),
+            session: session,
+            options: ExportOptions()
+        ).image
+        let thumbnail = try writeThumbnail(rendered, into: url)
+        return ImagePayload(image: thumbnail)
     }
 
     private func packageURL(for id: UUID) -> URL {
@@ -120,6 +152,14 @@ actor LocalHistoryStore: HistoryStore {
 
     private func ensureRoot() throws {
         try fileManager.createDirectory(at: rootURL, withIntermediateDirectories: true)
+    }
+
+    @discardableResult
+    private func writeThumbnail(_ image: CGImage, into directory: URL) throws -> CGImage {
+        let thumbnail = try ImageCodec.thumbnail(from: image)
+        let data = try ImageCodec.data(from: thumbnail, format: .jpeg, quality: 0.82)
+        try data.write(to: directory.appendingPathComponent("thumbnail.jpg"), options: .atomic)
+        return thumbnail
     }
 
     private func writeMetadata(_ session: CaptureSession, into directory: URL) throws {

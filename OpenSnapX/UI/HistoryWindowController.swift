@@ -37,6 +37,13 @@ final class HistoryWindowController: NSWindowController, NSCollectionViewDataSou
         updateSelectionActions()
     }
 
+    func update(session: CaptureSession, thumbnail: CGImage) {
+        guard let index = sessions.firstIndex(where: { $0.id == session.id }) else { return }
+        sessions[index] = session
+        thumbnails[session.id] = thumbnail
+        collectionView.reloadItems(at: [IndexPath(item: index, section: 0)])
+    }
+
     func show() {
         ApplicationPresentation.activateRegularApplication()
         showWindow(nil)

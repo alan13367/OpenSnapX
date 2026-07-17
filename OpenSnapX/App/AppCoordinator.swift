@@ -341,6 +341,9 @@ final class AppCoordinator: NSObject {
             ocrService: ocrService,
             exportService: exportService,
             initialPersistence: initialPersistence,
+            onSessionSaved: { [weak self] id in
+                self?.historySessionDidChange(id: id)
+            },
             onDiscardCapture: { [weak self] id in
                 guard let self else { return }
                 try await self.discardCaptureFromEditor(id: id)
@@ -406,8 +409,14 @@ final class AppCoordinator: NSObject {
 
     private func withHistoryImage(id: UUID, action: @escaping (CGImage) -> Void) {
         Task {
-            do { let (_, payload) = try await historyStore.load(id: id); action(payload.image) }
-            catch { present(error) }
+            do {
+                let (session, payload) = try await historyStore.load(id: id)
+                let renderer = self.renderer
+                let rendered = try await Task.detached(priority: .userInitiated) {
+                    try renderer.render(source: payload, session: session, options: ExportOptions()).image
+                }.value
+                action(rendered)
+            } catch { present(error) }
         }
     }
 
@@ -438,6 +447,15 @@ final class AppCoordinator: NSObject {
             }
         }
         controller.update(sessions, thumbnails: thumbnails)
+    }
+
+    private func historySessionDidChange(id: UUID) {
+        guard let controller = historyController, controller.window?.isVisible == true else { return }
+        Task {
+            guard let session = await historyStore.list().first(where: { $0.id == id }),
+                  let thumbnail = try? await historyStore.thumbnail(id: id) else { return }
+            controller.update(session: session, thumbnail: thumbnail.image)
+        }
     }
 
     private func showColorNotice(color: NSColor, hex: String) {

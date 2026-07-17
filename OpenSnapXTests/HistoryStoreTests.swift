@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import XCTest
 @testable import OpenSnapX
@@ -20,8 +21,10 @@ final class HistoryStoreTests: XCTestCase {
         session.annotations.append(Annotation(kind: .redact, frame: CanvasRect(CGRect(x: 2, y: 2, width: 8, height: 8))))
         try await store.save(session)
         let (loaded, image) = try await store.load(id: result.id)
+        let thumbnail = try await store.thumbnail(id: result.id).image
         XCTAssertEqual(loaded.annotations.count, 1)
         XCTAssertEqual(image.image.width, 32)
+        XCTAssertGreaterThan(darkPixelCount(in: thumbnail), 40)
         let beforeDelete = await store.list()
         XCTAssertEqual(beforeDelete.count, 1)
         try await store.delete(id: result.id)
@@ -46,6 +49,20 @@ final class HistoryStoreTests: XCTestCase {
         let remaining = await store.list()
         XCTAssertTrue(remaining.isEmpty)
     }
+}
+
+private func darkPixelCount(in image: CGImage) -> Int {
+    let bitmap = NSBitmapImageRep(cgImage: image)
+    var count = 0
+    for y in 0..<image.height {
+        for x in 0..<image.width {
+            guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+            if color.redComponent < 0.2, color.greenComponent < 0.2, color.blueComponent < 0.2 {
+                count += 1
+            }
+        }
+    }
+    return count
 }
 
 func solidImage(width: Int, height: Int, color: CGColor = CGColor(red: 1, green: 1, blue: 1, alpha: 1)) throws -> CGImage {
