@@ -58,6 +58,59 @@ final class ModelAndGeometryTests: XCTestCase {
         XCTAssertEqual(resized.map(\.cgPoint), [CGPoint(x: 10, y: 20), CGPoint(x: 170, y: 100)])
     }
 
+    func testFreehandGeometryFrameContainsEveryPointInsteadOfOnlyEndpoints() {
+        let annotation = Annotation(
+            kind: .pen,
+            frame: CanvasRect(CGRect(x: 100, y: 100, width: 20, height: 20)),
+            points: [
+                CanvasPoint(CGPoint(x: 100, y: 100)),
+                CanvasPoint(CGPoint(x: 25, y: 180)),
+                CanvasPoint(CGPoint(x: 160, y: 240)),
+                CanvasPoint(CGPoint(x: 120, y: 120))
+            ]
+        )
+
+        XCTAssertEqual(
+            AnnotationCanvasGeometry.geometryFrame(for: annotation),
+            CGRect(x: 25, y: 100, width: 135, height: 140)
+        )
+    }
+
+    func testNonFreehandGeometryKeepsStoredFrame() {
+        let annotation = Annotation(
+            kind: .rectangle,
+            frame: CanvasRect(CGRect(x: 10, y: 20, width: 80, height: 40)),
+            points: [CanvasPoint(CGPoint(x: 0, y: 0))]
+        )
+
+        XCTAssertEqual(
+            AnnotationCanvasGeometry.geometryFrame(for: annotation),
+            annotation.frame.cgRect
+        )
+    }
+
+    func testCounterFontScalesWithShortestDimensionWhenResized() {
+        XCTAssertEqual(
+            AnnotationCanvasGeometry.resizedFontSize(
+                24,
+                from: CGRect(x: 0, y: 0, width: 64, height: 32),
+                to: CGRect(x: 0, y: 0, width: 64, height: 64)
+            ),
+            48
+        )
+    }
+
+    func testCounterFontDoesNotScaleWhenOnlyLongDimensionChanges() {
+        XCTAssertEqual(
+            AnnotationCanvasGeometry.resizedFontSize(
+                24,
+                from: CGRect(x: 0, y: 0, width: 32, height: 32),
+                to: CGRect(x: 0, y: 0, width: 64, height: 32)
+            ),
+            24
+        )
+    }
+
     func testLineHitAreaIsEasierThanItsVisibleStroke() {
         let distance = AnnotationCanvasGeometry.distance(
             from: CGPoint(x: 50, y: 26),

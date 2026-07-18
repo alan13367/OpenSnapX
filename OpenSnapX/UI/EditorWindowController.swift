@@ -89,8 +89,10 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     private let scrollView = NSScrollView()
     private let colorWell = NSColorWell()
     private let widthSlider = NSSlider(value: 15, minValue: 1, maxValue: 28, target: nil, action: nil)
+    private let counterFontSlider = NSSlider(value: 24, minValue: 12, maxValue: 96, target: nil, action: nil)
     private let colorLabel = NSTextField(labelWithString: "#FF0000")
     private let widthLabel = NSTextField(labelWithString: "15 pt")
+    private let widthCaption = NSTextField(labelWithString: "Stroke width")
     private let imageSizeLabel = NSTextField(labelWithString: "")
     private let zoomLabel = NSTextField(labelWithString: "100%")
     private var colorPalettePopover: NSPopover?
@@ -107,6 +109,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     private weak var editorBar: NSView?
     private var displayedCanvasMagnification: CGFloat = 1
     private var showsLogicalImageSize = true
+    private var selectedAnnotationKind: AnnotationKind?
+    private weak var styleMetricGroup: NSView?
 
     init(
         session: CaptureSession,
@@ -587,11 +591,10 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         let widthHint = "Stroke width"
         widthLabel.toolTip = widthHint
 
-        let caption = NSTextField(labelWithString: "Stroke width")
-        caption.font = .systemFont(ofSize: 11)
-        caption.textColor = .secondaryLabelColor
+        widthCaption.font = .systemFont(ofSize: 11)
+        widthCaption.textColor = .secondaryLabelColor
 
-        let stack = NSStackView(views: [widthLabel, caption])
+        let stack = NSStackView(views: [widthLabel, widthCaption])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 0
@@ -600,6 +603,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         stack.setAccessibilityLabel("Stroke width")
         stack.setAccessibilityHelp(widthHint)
         stack.toolTip = widthHint
+        styleMetricGroup = stack
 
         let click = NSClickGestureRecognizer(target: self, action: #selector(showStrokePopover(_:)))
         stack.addGestureRecognizer(click)
@@ -609,20 +613,27 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
 
     @objc private func showStrokePopover(_ sender: NSClickGestureRecognizer) {
         guard let anchor = sender.view else { return }
-        widthSlider.target = self
-        widthSlider.action = #selector(styleChanged)
-        widthSlider.isContinuous = true
-        widthSlider.controlSize = .small
-        widthSlider.toolTip = "Stroke width: 1–28 pt"
-        widthSlider.setAccessibilityLabel("Stroke width in points")
-        widthSlider.frame = CGRect(x: 0, y: 0, width: 140, height: 24)
+        let slider: NSSlider
+        if isCounterSizeContext {
+            counterFontSlider.target = self
+            counterFontSlider.action = #selector(counterFontSizeChanged)
+            counterFontSlider.toolTip = "Step number size: 12–96 pt"
+            counterFontSlider.setAccessibilityLabel("Step number size in points")
+            slider = counterFontSlider
+        } else {
+            widthSlider.target = self
+            widthSlider.action = #selector(styleChanged)
+            widthSlider.toolTip = "Stroke width: 1–28 pt"
+            widthSlider.setAccessibilityLabel("Stroke width in points")
+            slider = widthSlider
+        }
+        slider.isContinuous = true
+        slider.controlSize = .small
 
         let container = NSView(frame: CGRect(x: 0, y: 0, width: 168, height: 44))
-        widthSlider.frame = CGRect(x: 14, y: 10, width: 140, height: 24)
-        if widthSlider.superview != container {
-            widthSlider.removeFromSuperview()
-            container.addSubview(widthSlider)
-        }
+        slider.frame = CGRect(x: 14, y: 10, width: 140, height: 24)
+        slider.removeFromSuperview()
+        container.addSubview(slider)
 
         let popover = NSPopover()
         popover.contentSize = container.frame.size
@@ -730,6 +741,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
             button.setSelected(candidate == tool)
         }
         moreToolsButton?.setSelected(toolButtons[tool] == nil)
+        updateStyleLabels()
         applyStyle()
     }
 
@@ -775,18 +787,32 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     @objc private func styleChanged() {
         updateStyleLabels()
         applyStyle()
-        canvas.applyStrokeToSelection(
+        let color = RGBAColor(colorWell.color)
+        canvas.applyStrokeToSelection(color: color, lineWidth: widthSlider.doubleValue)
+        canvas.applyCounterStyleToSelection(color: color, fontSize: counterFontSlider.doubleValue)
+    }
+
+    @objc private func counterFontSizeChanged() {
+        updateStyleLabels()
+        applyStyle()
+        canvas.applyCounterStyleToSelection(
             color: RGBAColor(colorWell.color),
-            lineWidth: widthSlider.doubleValue
+            fontSize: counterFontSlider.doubleValue
         )
     }
 
     private func selectionChanged(_ annotation: Annotation?) {
-        guard let annotation,
-              EditorTool(rawValue: annotation.kind.rawValue)?.usesStrokeWidth == true else { return }
-        colorWell.color = annotation.style.strokeColor.nsColor
-        widthSlider.maxValue = max(28, annotation.style.lineWidth)
-        widthSlider.doubleValue = annotation.style.lineWidth
+        selectedAnnotationKind = annotation?.kind
+        if let annotation,
+           EditorTool(rawValue: annotation.kind.rawValue)?.usesStrokeWidth == true {
+            colorWell.color = annotation.style.strokeColor.nsColor
+            widthSlider.maxValue = max(28, annotation.style.lineWidth)
+            widthSlider.doubleValue = annotation.style.lineWidth
+        } else if let annotation, annotation.kind == .counter {
+            colorWell.color = annotation.style.strokeColor.nsColor
+            counterFontSlider.maxValue = max(96, annotation.style.fontSize)
+            counterFontSlider.doubleValue = annotation.style.fontSize
+        }
         updateStyleLabels()
     }
 
@@ -817,9 +843,25 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         updateZoomLabel()
     }
 
+    private var isCounterSizeContext: Bool {
+        canvas.tool == .counter || (canvas.tool == .select && selectedAnnotationKind == .counter)
+    }
+
     private func updateStyleLabels() {
         colorLabel.stringValue = hexString(for: colorWell.color)
-        widthLabel.stringValue = "\(Int(widthSlider.doubleValue.rounded())) pt"
+        let metricName: String
+        if isCounterSizeContext {
+            widthLabel.stringValue = "\(Int(counterFontSlider.doubleValue.rounded())) pt"
+            metricName = "Number size"
+        } else {
+            widthLabel.stringValue = "\(Int(widthSlider.doubleValue.rounded())) pt"
+            metricName = "Stroke width"
+        }
+        widthCaption.stringValue = metricName
+        widthLabel.toolTip = metricName
+        styleMetricGroup?.toolTip = metricName
+        styleMetricGroup?.setAccessibilityLabel(metricName)
+        styleMetricGroup?.setAccessibilityHelp("Click to change \(metricName.lowercased())")
         for (tool, button) in toolButtons {
             let hint = toolHint(for: tool)
             button.toolTip = hint
@@ -828,6 +870,10 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func toolHint(for tool: EditorTool) -> String {
+        if tool == .counter {
+            let size = Int(counterFontSlider.doubleValue.rounded())
+            return "\(tool.hint) • Number: \(size) pt"
+        }
         guard tool.usesStrokeWidth else { return tool.hint }
         let width = Int(widthSlider.doubleValue.rounded())
         return "\(tool.hint) • Stroke: \(width) pt"
@@ -872,6 +918,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     private func applyStyle() {
         canvas.style.strokeColor = RGBAColor(colorWell.color)
         canvas.style.lineWidth = widthSlider.doubleValue
+        canvas.counterFontSize = counterFontSlider.doubleValue
         canvas.style.fillColor = canvas.tool == .redact ? .black : nil
         canvas.style.opacity = canvas.tool == .highlighter ? 0.38 : 1
     }
@@ -1675,6 +1722,22 @@ struct AnnotationCanvasGeometry {
         }
     }
 
+    static func geometryFrame(for annotation: Annotation) -> CGRect {
+        switch annotation.kind {
+        case .pen, .highlighter:
+            frame(containing: annotation.points, fallback: annotation.frame.cgRect)
+        default:
+            annotation.frame.cgRect
+        }
+    }
+
+    static func resizedFontSize(_ fontSize: Double, from oldFrame: CGRect, to newFrame: CGRect) -> Double {
+        let oldDiameter = min(oldFrame.width, oldFrame.height)
+        let newDiameter = min(newFrame.width, newFrame.height)
+        guard oldDiameter > 0 else { return fontSize }
+        return max(1, fontSize * newDiameter / oldDiameter)
+    }
+
     static func distance(from point: CGPoint, toSegmentFrom start: CGPoint, to end: CGPoint) -> CGFloat {
         let dx = end.x - start.x
         let dy = end.y - start.y
@@ -1695,6 +1758,7 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
         }
     }
     var style = AnnotationStyle()
+    var counterFontSize: Double = 24
     var annotations: [Annotation] {
         didSet {
             if let selectedID, !annotations.contains(where: { $0.id == selectedID }) {
@@ -1747,6 +1811,7 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
     private var dragStart: CGPoint?
     private var originalFrame: CGRect?
     private var originalPoints: [CanvasPoint] = []
+    private var originalFontSize: Double?
     private var dragOperation: DragOperation?
     private var didModifySelection = false
     private var ocrDragStart: CGPoint?
@@ -1785,6 +1850,7 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
         dragStart = nil
         originalFrame = nil
         originalPoints = []
+        originalFontSize = nil
         dragOperation = nil
         copiedAnnotation = nil
         self.annotations = annotations
@@ -1805,6 +1871,7 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
         dragStart = nil
         originalFrame = nil
         originalPoints = []
+        originalFontSize = nil
         dragOperation = nil
         copiedAnnotation = nil
         self.annotations = annotations
@@ -1860,18 +1927,23 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
                 dragOperation = selectedID == nil ? nil : .move
             }
             if let selectedID, let selected = annotations.first(where: { $0.id == selectedID }) {
-                originalFrame = selected.frame.cgRect
+                originalFrame = AnnotationCanvasGeometry.geometryFrame(for: selected)
                 originalPoints = selected.points
+                originalFontSize = selected.style.fontSize
                 if selected.kind != .text { hideTextToolbar() }
             } else {
                 originalFrame = nil
                 originalPoints = []
+                originalFontSize = nil
                 hideTextToolbar()
             }
         } else if let kind = tool.annotationKind {
             hideTextToolbar()
             draft = Annotation(kind: kind, frame: CanvasRect(CGRect(origin: point, size: .zero)), points: [CanvasPoint(point)], style: style)
-            if kind == .counter { draft?.counter = counter }
+            if kind == .counter {
+                draft?.counter = counter
+                draft?.style.fontSize = counterFontSize
+            }
             if kind == .text { draft?.text = "" }
         }
         needsDisplay = true
@@ -1908,6 +1980,13 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
                     from: originalFrame,
                     to: newFrame
                 )
+                if annotations[index].kind == .counter, let originalFontSize {
+                    annotations[index].style.fontSize = AnnotationCanvasGeometry.resizedFontSize(
+                        originalFontSize,
+                        from: originalFrame,
+                        to: newFrame
+                    )
+                }
             case .startPoint, .endPoint:
                 var points = originalPoints
                 guard !points.isEmpty else { break }
@@ -1922,11 +2001,14 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
             }
             didModifySelection = true
         } else if var draft {
-            let frame = rect(from: start, to: point)
-            draft.frame = CanvasRect(frame)
             if draft.kind == .pen || draft.kind == .highlighter {
                 draft.points.append(CanvasPoint(point))
+                draft.frame = CanvasRect(AnnotationCanvasGeometry.frame(
+                    containing: draft.points,
+                    fallback: draft.frame.cgRect
+                ))
             } else {
+                draft.frame = CanvasRect(rect(from: start, to: point))
                 draft.points = [CanvasPoint(start), CanvasPoint(point)]
             }
             self.draft = draft
@@ -1954,11 +2036,17 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
             dragStart = nil
             originalFrame = nil
             originalPoints = []
+            originalFontSize = nil
             dragOperation = nil
             didModifySelection = false
         }
         if tool == .select {
-            if didModifySelection { onAnnotationsChanged?(annotations) }
+            if didModifySelection {
+                onAnnotationsChanged?(annotations)
+                if let selectedID {
+                    onSelectionChanged?(annotations.first { $0.id == selectedID })
+                }
+            }
             if let selectedID,
                annotations.first(where: { $0.id == selectedID })?.kind == .text {
                 showTextToolbar(for: selectedID)
@@ -1985,9 +2073,16 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
             return
         }
         if draft.frame.cgRect.width < 2 && draft.frame.cgRect.height < 2 {
-            draft.frame = CanvasRect(CGRect(x: draft.frame.x - 16, y: draft.frame.y - 16, width: 32, height: 32))
+            if draft.kind == .counter {
+                draft.frame = CanvasRect(defaultCounterFrame(centeredAt: draft.frame.cgRect.origin, annotation: draft))
+            } else {
+                draft.frame = CanvasRect(CGRect(x: draft.frame.x - 16, y: draft.frame.y - 16, width: 32, height: 32))
+            }
         }
-        if draft.kind == .counter { counter += 1 }
+        if draft.kind == .counter {
+            draft.frame = CanvasRect(counterFrameEnsuringTextFits(draft))
+            counter += 1
+        }
         annotations.append(draft)
         selectedID = draft.id
         onAnnotationsChanged?(annotations)
@@ -2213,7 +2308,9 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
                let end = annotation.points.last?.cgPoint {
                 return AnnotationCanvasGeometry.distance(from: point, toSegmentFrom: start, to: end) <= max(8, annotation.style.lineWidth + 4)
             }
-            return annotation.frame.cgRect.insetBy(dx: -5, dy: -5).contains(point)
+            return AnnotationCanvasGeometry.geometryFrame(for: annotation)
+                .insetBy(dx: -5, dy: -5)
+                .contains(point)
         }
     }
 
@@ -2242,7 +2339,9 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
                 return [.resizeTop, .resizeBottom, .resizeLeft, .resizeRight][i]
             }
         }
-        return annotation.frame.cgRect.insetBy(dx: -5, dy: -5).contains(point) ? .move : nil
+        return AnnotationCanvasGeometry.geometryFrame(for: annotation)
+            .insetBy(dx: -5, dy: -5)
+            .contains(point) ? .move : nil
     }
 
     private func drawSelectionHandle(at point: CGPoint) {
@@ -2541,6 +2640,19 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
         refreshTextToolbar()
     }
 
+    func applyCounterStyleToSelection(color: RGBAColor, fontSize: Double) {
+        guard let selectedID,
+              let index = annotations.firstIndex(where: { $0.id == selectedID }),
+              annotations[index].kind == .counter else { return }
+        var annotation = annotations[index]
+        guard annotation.style.strokeColor != color || annotation.style.fontSize != fontSize else { return }
+        annotation.style.strokeColor = color
+        annotation.style.fontSize = fontSize
+        annotation.frame = CanvasRect(counterFrameEnsuringTextFits(annotation))
+        annotations[index] = annotation
+        onAnnotationsChanged?(annotations)
+    }
+
     func applyStrokeToSelection(color: RGBAColor, lineWidth: Double) {
         guard let selectedID,
               let index = annotations.firstIndex(where: { $0.id == selectedID }),
@@ -2551,6 +2663,32 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
         annotation.style.lineWidth = lineWidth
         annotations[index] = annotation
         onAnnotationsChanged?(annotations)
+    }
+
+    private func defaultCounterFrame(centeredAt center: CGPoint, annotation: Annotation) -> CGRect {
+        let font = NSFont.systemFont(ofSize: annotation.style.fontSize, weight: .bold)
+        let textSize = String(annotation.counter ?? 1).size(withAttributes: [.font: font])
+        let diameter = ceil(max(32, textSize.width + 12, textSize.height + 8))
+        return CGRect(
+            x: center.x - diameter / 2,
+            y: center.y - diameter / 2,
+            width: diameter,
+            height: diameter
+        )
+    }
+
+    private func counterFrameEnsuringTextFits(_ annotation: Annotation) -> CGRect {
+        let required = defaultCounterFrame(centeredAt: .zero, annotation: annotation).width
+        let frame = annotation.frame.cgRect
+        guard frame.width < required || frame.height < required else { return frame }
+        let width = max(frame.width, required)
+        let height = max(frame.height, required)
+        return CGRect(
+            x: frame.midX - width / 2,
+            y: frame.midY - height / 2,
+            width: width,
+            height: height
+        )
     }
 
     private func resizedFrame(_ frame: CGRect, for operation: DragOperation, by delta: CGPoint) -> CGRect {
@@ -2584,7 +2722,8 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
         let outset = usesStroke
             ? annotation.style.lineWidth / 2 + overlayMetric(5)
             : overlayMetric(5)
-        return annotation.frame.cgRect.insetBy(dx: -outset, dy: -outset)
+        return AnnotationCanvasGeometry.geometryFrame(for: annotation)
+            .insetBy(dx: -outset, dy: -outset)
     }
 
     private func drawSelectionOutline(in frame: CGRect) {
