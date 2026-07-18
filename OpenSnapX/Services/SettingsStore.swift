@@ -11,6 +11,7 @@ final class SettingsStore {
         static let captureSoundEnabled = "captureSoundEnabled"
         static let launchAtLogin = "launchAtLogin"
         static let exportFormat = "exportFormat"
+        static let mcpEnabled = "mcpEnabled"
     }
 
     private let defaults: UserDefaults
@@ -22,7 +23,8 @@ final class SettingsStore {
             Key.includeCursor: false,
             Key.captureSoundEnabled: true,
             Key.launchAtLogin: false,
-            Key.exportFormat: ExportFormat.png.rawValue
+            Key.exportFormat: ExportFormat.png.rawValue,
+            Key.mcpEnabled: false
         ])
     }
 
@@ -54,6 +56,11 @@ final class SettingsStore {
     var exportFormat: ExportFormat {
         get { ExportFormat(rawValue: defaults.string(forKey: Key.exportFormat) ?? "") ?? .png }
         set { defaults.set(newValue.rawValue, forKey: Key.exportFormat) }
+    }
+
+    var mcpEnabled: Bool {
+        get { defaults.bool(forKey: Key.mcpEnabled) }
+        set { defaults.set(newValue, forKey: Key.mcpEnabled) }
     }
 
     func shortcut(for action: ShortcutAction) -> ShortcutDefinition {

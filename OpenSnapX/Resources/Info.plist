@@ -29,6 +29,6 @@
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 	<key>NSScreenCaptureUsageDescription</key>
-	<string>OpenSnapX needs Screen Recording access to capture screenshots you request. Captures stay on this Mac.</string>
+	<string>OpenSnapX needs Screen Recording access for screenshots requested by you or a local MCP client after you enable AI agent access. Captures stay on this Mac.</string>
 </dict>
 </plist>

@@ -6,9 +6,13 @@ final class OnboardingWindowController: NSWindowController {
     private let permissionService: ScreenPermissionService
     private let settings: SettingsStore
     private let registerShortcuts: () -> [ShortcutRegistrationResult]
+    private let setMCPEnabled: (Bool) -> Void
+    private let installAgentSkill: () -> Void
     private let onFinish: () -> Void
 
     private let permissionStatus = NSTextField(labelWithString: "")
+    private let mcpEnabled = NSButton(checkboxWithTitle: "Enable local MCP for AI agents", target: nil, action: nil)
+    private let installSkillButton = NSButton(title: "Install Agent Skill…", target: nil, action: nil)
     private let appleShortcutGuideDetail = NSTextField(wrappingLabelWithString: "")
     private var shortcutStatusLabels: [ShortcutAction: NSTextField] = [:]
     private var shortcutRecorders: [ShortcutAction: ShortcutRecorderControl] = [:]
@@ -19,11 +23,15 @@ final class OnboardingWindowController: NSWindowController {
         permissionService: ScreenPermissionService,
         settings: SettingsStore,
         registerShortcuts: @escaping () -> [ShortcutRegistrationResult],
+        setMCPEnabled: @escaping (Bool) -> Void,
+        installAgentSkill: @escaping () -> Void,
         onFinish: @escaping () -> Void
     ) {
         self.permissionService = permissionService
         self.settings = settings
         self.registerShortcuts = registerShortcuts
+        self.setMCPEnabled = setMCPEnabled
+        self.installAgentSkill = installAgentSkill
         self.onFinish = onFinish
 
         let window = NSWindow(
@@ -51,6 +59,7 @@ final class OnboardingWindowController: NSWindowController {
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         refreshPermissionStatus()
+        updateMCPEnabled(settings.mcpEnabled)
         startPermissionPolling()
         refreshShortcutStatuses(registerShortcuts())
     }
@@ -79,12 +88,10 @@ final class OnboardingWindowController: NSWindowController {
         headerLabels.trailingAnchor.constraint(equalTo: header.trailingAnchor).isActive = true
 
         let permissionSection = makePermissionSection()
+        let mcpSection = makeMCPSection()
         let shortcutSection = makeShortcutSection()
-        let flexibleSpace = NSView()
-        flexibleSpace.setContentHuggingPriority(.defaultLow, for: .vertical)
-        flexibleSpace.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
 
-        for view in [header, permissionSection, shortcutSection] {
+        for view in [header, permissionSection, mcpSection, shortcutSection] {
             view.setContentHuggingPriority(.required, for: .vertical)
             view.setContentCompressionResistancePriority(.required, for: .vertical)
         }
@@ -94,19 +101,36 @@ final class OnboardingWindowController: NSWindowController {
             separator(),
             permissionSection,
             separator(),
+            mcpSection,
+            separator(),
             shortcutSection,
-            flexibleSpace,
             separator(),
             makeFooter()
         ], spacing: 14)
-        root.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(root)
+        let documentView = OnboardingDocumentView()
+        documentView.translatesAutoresizingMaskIntoConstraints = false
+        let scrollView = NSScrollView()
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.drawsBackground = false
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.documentView = documentView
+        content.addSubview(scrollView)
 
+        root.translatesAutoresizingMaskIntoConstraints = false
+        documentView.addSubview(root)
         NSLayoutConstraint.activate([
-            root.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 34),
-            root.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -34),
-            root.topAnchor.constraint(equalTo: content.topAnchor, constant: 40),
-            root.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -24)
+            scrollView.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            scrollView.topAnchor.constraint(equalTo: content.topAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            documentView.leadingAnchor.constraint(equalTo: scrollView.contentView.leadingAnchor),
+            documentView.topAnchor.constraint(equalTo: scrollView.contentView.topAnchor),
+            documentView.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor),
+            root.leadingAnchor.constraint(equalTo: documentView.leadingAnchor, constant: 34),
+            root.trailingAnchor.constraint(equalTo: documentView.trailingAnchor, constant: -34),
+            root.topAnchor.constraint(equalTo: documentView.topAnchor, constant: 40),
+            root.bottomAnchor.constraint(equalTo: documentView.bottomAnchor, constant: -24)
         ])
         for view in root.arrangedSubviews {
             view.widthAnchor.constraint(equalTo: root.widthAnchor).isActive = true
@@ -116,7 +140,7 @@ final class OnboardingWindowController: NSWindowController {
     private func makePermissionSection() -> NSView {
         let title = NSTextField(labelWithString: "Screen access")
         title.font = .systemFont(ofSize: 16, weight: .semibold)
-        let detail = NSTextField(wrappingLabelWithString: "macOS requires Screen Recording permission before OpenSnapX can capture. It only reads the screen when you start a capture.")
+        let detail = NSTextField(wrappingLabelWithString: "macOS requires Screen Recording permission before OpenSnapX can capture. It reads the screen only for captures you start or local MCP requests after you enable agent access.")
         detail.font = .systemFont(ofSize: 11)
         detail.textColor = .secondaryLabelColor
         detail.maximumNumberOfLines = 2
@@ -144,6 +168,40 @@ final class OnboardingWindowController: NSWindowController {
         let buttons = horizontalStack([spacer, open, request], spacing: 8)
 
         return verticalStack([heading, buttons], spacing: 10)
+    }
+
+    private func makeMCPSection() -> NSView {
+        let title = NSTextField(labelWithString: "AI agent access")
+        title.font = .systemFont(ofSize: 16, weight: .semibold)
+        let detail = NSTextField(wrappingLabelWithString: "Optional. When enabled, local MCP clients running as your macOS user can capture non-focused windows and run OCR without per-request confirmation. MCP captures are not saved to history.")
+        detail.font = .systemFont(ofSize: 11)
+        detail.textColor = .secondaryLabelColor
+        detail.maximumNumberOfLines = 2
+        let labels = verticalStack([title, detail], spacing: 3)
+        labels.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let heading = horizontalStack([
+            symbolView("network", size: 17, color: .systemGreen),
+            labels
+        ], spacing: 10)
+        heading.alignment = .top
+        labels.trailingAnchor.constraint(equalTo: heading.trailingAnchor).isActive = true
+
+        mcpEnabled.target = self
+        mcpEnabled.action = #selector(mcpEnabledChanged)
+        mcpEnabled.font = .systemFont(ofSize: 13)
+        mcpEnabled.toolTip = "Allow local MCP clients running as your macOS user to request window capture and OCR"
+        mcpEnabled.setAccessibilityHelp(mcpEnabled.toolTip)
+        installSkillButton.target = self
+        installSkillButton.action = #selector(installSkill)
+        installSkillButton.bezelStyle = .rounded
+        installSkillButton.toolTip = "Install globally by default, or choose a project-specific skill folder"
+        installSkillButton.setAccessibilityHelp(installSkillButton.toolTip)
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let controls = horizontalStack([mcpEnabled, spacer, installSkillButton], spacing: 10)
+        controls.edgeInsets = NSEdgeInsets(top: 2, left: 34, bottom: 0, right: 0)
+
+        return verticalStack([heading, controls], spacing: 8)
     }
 
     private func makeShortcutSection() -> NSView {
@@ -321,6 +379,14 @@ final class OnboardingWindowController: NSWindowController {
         return container
     }
 
+    @objc private func mcpEnabledChanged() {
+        setMCPEnabled(mcpEnabled.state == .on)
+    }
+
+    @objc private func installSkill() {
+        installAgentSkill()
+    }
+
     @objc private func requestPermission() {
         _ = permissionService.request()
         refreshPermissionStatus()
@@ -354,6 +420,11 @@ final class OnboardingWindowController: NSWindowController {
     @objc private func finish() {
         onFinish()
         close()
+    }
+
+    func updateMCPEnabled(_ enabled: Bool) {
+        mcpEnabled.state = enabled ? .on : .off
+        installSkillButton.isEnabled = enabled
     }
 
     private func refreshPermissionStatus() {
@@ -560,6 +631,11 @@ final class OnboardingWindowController: NSWindowController {
         row.alignment = .centerY
         return row
     }
+}
+
+@MainActor
+private final class OnboardingDocumentView: NSView {
+    override var isFlipped: Bool { true }
 }
 
 extension OnboardingWindowController: NSWindowDelegate {

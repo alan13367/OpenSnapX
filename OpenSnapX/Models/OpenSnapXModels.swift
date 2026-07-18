@@ -279,6 +279,7 @@ enum OpenSnapXError: LocalizedError {
     case displayNotFound
     case selectionCancelled
     case captureFailed(String)
+    case windowUnavailable(String)
     case invalidHistoryEntry
     case noScrollOverlap
 
@@ -288,6 +289,7 @@ enum OpenSnapXError: LocalizedError {
         case .displayNotFound: "The selected display is no longer available."
         case .selectionCancelled: "Capture cancelled."
         case let .captureFailed(message): "Capture failed: \(message)"
+        case let .windowUnavailable(message): "Window unavailable: \(message)"
         case .invalidHistoryEntry: "This history entry is incomplete or corrupt."
         case .noScrollOverlap: "OpenSnapX could not find a reliable overlap between scrolling frames."
         }

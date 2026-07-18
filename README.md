@@ -19,6 +19,7 @@ OpenSnapX is a native, local-first screenshot and annotation utility for macOS. 
 - Undo/redo, zoom, non-destructive image resizing, annotation movement/duplication, pinned images, and focused backdrop styling
 - User-guided scrolling capture with local overlap validation and stitching
 - Menu-bar operation and global screenshot shortcuts without Accessibility permission
+- Optional, disabled-by-default local MCP window OCR for AI agents
 
 Video/GIF recording, audio, cloud uploads, automatic scrolling, translation, and multi-image composition are intentionally outside v1.
 
@@ -56,8 +57,25 @@ xcodebuild test \
 1. Grant Screen Recording access when prompted. OpenSnapX cannot capture without macOS consent.
 2. Assign capture shortcuts during onboarding or later in **OpenSnapX Settings**. macOS does not let third-party apps override its built-in screenshot actions, so if you keep `⌘⇧3`, `⌘⇧4`, or `⌘⇧5`, open **System Settings → Keyboard → Keyboard Shortcuts → Screenshots** and turn off the matching Apple shortcuts. OpenSnapX never changes system preferences for you.
 3. With those Apple shortcuts turned off, use `⌘⇧3` for a display, `⌘⇧4` for an area/window, `⌘⇧5` for scrolling capture, and `⌘⇧2` for direct OCR. You can instead record conflict-free combinations in OpenSnapX.
+4. Optional: enable **Local MCP for AI agents** during onboarding or later in Settings. It remains off unless you explicitly enable it.
 
 Locally rebuilt ad-hoc-signed apps can cause macOS to request Screen Recording permission again. The build script avoids that when a local Apple Development certificate is installed. Signed and notarized downloadable builds require a future Apple Developer Program membership.
+
+## Optional local MCP
+
+OpenSnapX can expose three local MCP tools to AI agents:
+
+- `opensnapx_status`
+- `opensnapx_list_windows`
+- `opensnapx_capture_window_ocr`
+
+The MCP server is disabled by default. When enabled, its state appears as a separate item in the existing OpenSnapX menu-bar menu. Agent requests run unattended, but active requests are shown there. ScreenCaptureKit captures non-focused and occluded windows without activating them; minimized or otherwise off-screen windows are listed as unavailable.
+
+Communication uses a Unix domain socket restricted to the current macOS user and a stdio connector—no TCP listener or Internet access. While MCP is enabled, any process running as that user can connect and invoke the exposed tools; access is not restricted to a particular configured agent, and requests do not require per-request confirmation. OCR always runs on the original-resolution capture. Screenshots are returned only when the client explicitly requests one, remain at original resolution, and are never added to OpenSnapX history.
+
+Use **Settings → AI Agents → Install Agent Skill…** to install `.agents/skills/opensnapx-ocr` globally (the default) or in a selected project. OpenSnapX asks before writing outside its sandbox and does not silently edit MCP client configuration. The installed skill documents a context-efficient workflow: filter window discovery by app/title, return OCR text without block geometry by default, and request PNG data only for explicit visual analysis. MCP-capable hosts should register `scripts/connect.sh`; agents without native MCP registration can use the concise `scripts/call.sh` one-shot helper.
+
+Only Screen Recording permission is required. Accessibility permission is not requested because OpenSnapX does not focus, unminimize, or control other apps.
 
 ## Architecture
 
@@ -67,7 +85,7 @@ The Xcode project is generated from `project.yml`. Edit that source file and run
 
 ## Privacy and security
 
-OpenSnapX makes no network requests. Captures and OCR remain on the Mac. Editable source images are retained for seven days by default—even after an exported image has been redacted—unless the history entry is deleted sooner. See [PRIVACY.md](PRIVACY.md).
+OpenSnapX makes no network requests. Captures and OCR remain on the Mac. Editable source images created by normal capture workflows are retained for seven days by default—even after an exported image has been redacted—unless the history entry is deleted sooner. MCP captures are processed in memory and are not retained by OpenSnapX. See [PRIVACY.md](PRIVACY.md).
 
 ## Contributing
 

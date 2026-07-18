@@ -8,7 +8,7 @@ final class AppCoordinator: NSObject {
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "OpenSnapX", category: "App")
     private let settings = SettingsStore.shared
     private let permissionService = ScreenPermissionService()
-    private let captureService: any CaptureService = ScreenCaptureService()
+    private let captureService = ScreenCaptureService()
     private let historyStore: any HistoryStore = LocalHistoryStore()
     private let renderer: any ImageRenderer = CoreGraphicsImageRenderer()
     private let ocrService: any OCRService = VisionOCRService()
@@ -18,6 +18,10 @@ final class AppCoordinator: NSObject {
     private let shortcutManager: any ShortcutManager = CarbonShortcutManager()
     private let overlayController = CaptureOverlayController()
     private let pinnedController = PinnedImageController()
+    private let agentSkillInstaller: any AgentSkillInstalling = LocalAgentSkillInstaller()
+    private lazy var mcpServer: any MCPServer = UnixSocketMCPServer(
+        toolHandler: MCPToolService(windowService: captureService, ocrService: ocrService)
+    )
 
     private var statusItem: NSStatusItem!
     private var onboardingController: OnboardingWindowController?
@@ -33,6 +37,10 @@ final class AppCoordinator: NSObject {
     func start() {
         NSApp.setActivationPolicy(.accessory)
         configureStatusItem()
+        mcpServer.onStatusChange = { [weak self] status in
+            self?.mcpStatusDidChange(status)
+        }
+        if settings.mcpEnabled { mcpServer.start() }
         shortcutManager.onAction = { [weak self] action in self?.handleShortcut(action) }
         _ = registerConfiguredShortcuts()
         NotificationCenter.default.addObserver(self, selector: #selector(windowClosed), name: NSWindow.willCloseNotification, object: nil)
@@ -44,6 +52,7 @@ final class AppCoordinator: NSObject {
     }
 
     func stop() {
+        mcpServer.stop()
         shortcutManager.unregisterAll()
     }
 
@@ -69,6 +78,16 @@ final class AppCoordinator: NSObject {
         menu.addItem(captureItem("Capture Text", #selector(captureText), shortcut: .captureText))
         menu.addItem(.separator())
         menu.addItem(captureItem("Color Picker", #selector(pickColor), shortcut: .colorPicker))
+        if settings.mcpEnabled {
+            menu.addItem(.separator())
+            let mcpItem = item(mcpMenuTitle, #selector(showSettings))
+            mcpItem.tag = 9_001
+            mcpItem.image = NSImage(
+                systemSymbolName: mcpServer.status.activeRequests > 0 ? "sparkles.rectangle.stack.fill" : "network",
+                accessibilityDescription: "Local MCP status"
+            )
+            menu.addItem(mcpItem)
+        }
         if !shortcutConflicts.isEmpty {
             let warning = NSMenuItem(title: "⚠ Keyboard shortcut conflict", action: #selector(showOnboarding), keyEquivalent: "")
             warning.target = self
@@ -104,6 +123,26 @@ final class AppCoordinator: NSObject {
         if ["2", "3", "4", "5"].contains(key) { item.keyEquivalentModifierMask = [.command, .shift] }
         return item
     }
+
+    private var mcpPresentationStatus: String {
+        guard settings.mcpEnabled else { return "Off" }
+        switch mcpServer.status.phase {
+        case .stopped, .starting:
+            return "Starting…"
+        case let .failed(message):
+            return "Error — \(message)"
+        case .listening:
+            if !permissionService.isAuthorized { return "Screen Access Needed" }
+            if mcpServer.status.activeRequests > 0 { return "Agent Request Active…" }
+            if mcpServer.status.connectedClients == 1 { return "1 Agent Connected" }
+            if mcpServer.status.connectedClients > 1 {
+                return "\(mcpServer.status.connectedClients) Agents Connected"
+            }
+            return "Ready"
+        }
+    }
+
+    private var mcpMenuTitle: String { "Local MCP: \(mcpPresentationStatus)" }
 
     private func captureItem(_ title: String, _ selector: Selector, shortcut action: ShortcutAction) -> NSMenuItem {
         let definition = settings.shortcut(for: action)
@@ -386,9 +425,13 @@ final class AppCoordinator: NSObject {
         let controller = settingsController ?? SettingsWindowController(
             settings: settings,
             registerShortcuts: { [weak self] in self?.registerConfiguredShortcuts() ?? [] },
-            showOnboarding: { [weak self] in self?.showOnboarding() }
+            showOnboarding: { [weak self] in self?.showOnboarding() },
+            setMCPEnabled: { [weak self] enabled in self?.setMCPEnabled(enabled) },
+            installAgentSkill: { [weak self] in self?.installAgentSkill() },
+            copyMCPConfiguration: { [weak self] in self?.copyMCPConfiguration() }
         )
         settingsController = controller
+        controller.updateMCPStatus(mcpPresentationStatus)
         controller.show()
     }
 
@@ -397,14 +440,78 @@ final class AppCoordinator: NSObject {
             permissionService: permissionService,
             settings: settings,
             registerShortcuts: { [weak self] in self?.registerConfiguredShortcuts() ?? [] },
+            setMCPEnabled: { [weak self] enabled in self?.setMCPEnabled(enabled) },
+            installAgentSkill: { [weak self] in self?.installAgentSkill() },
             onFinish: { [weak self] in
                 guard let self else { return }
                 self.settings.completedOnboarding = true
                 _ = self.registerConfiguredShortcuts()
+                Task { await self.rebuildMenu() }
             }
         )
         onboardingController = controller
         controller.show()
+    }
+
+    private func setMCPEnabled(_ enabled: Bool) {
+        settings.mcpEnabled = enabled
+        if enabled { mcpServer.start() }
+        else { mcpServer.stop() }
+        settingsController?.updateMCPStatus(mcpPresentationStatus)
+        onboardingController?.updateMCPEnabled(enabled)
+        Task { await rebuildMenu() }
+    }
+
+    private func mcpStatusDidChange(_: MCPServerStatus) {
+        settingsController?.updateMCPStatus(mcpPresentationStatus)
+        guard let mcpItem = statusItem.menu?.item(withTag: 9_001) else { return }
+        mcpItem.title = mcpMenuTitle
+        mcpItem.image = NSImage(
+            systemSymbolName: mcpServer.status.activeRequests > 0 ? "sparkles.rectangle.stack.fill" : "network",
+            accessibilityDescription: "Local MCP status"
+        )
+    }
+
+    private func installAgentSkill() {
+        let choice = NSAlert()
+        choice.messageText = "Install the OpenSnapX OCR agent skill"
+        choice.informativeText = "Install globally for all projects, or choose a specific project. OpenSnapX will ask you to select the destination before writing files."
+        choice.addButton(withTitle: "Install Globally")
+        choice.addButton(withTitle: "Install in Project")
+        choice.addButton(withTitle: "Cancel")
+
+        let scope: AgentSkillInstallScope
+        switch choice.runModal() {
+        case .alertFirstButtonReturn: scope = .global
+        case .alertSecondButtonReturn: scope = .project
+        default: return
+        }
+
+        do {
+            guard let destination = try agentSkillInstaller.install(
+                scope: scope,
+                presentingWindow: settingsController?.window ?? onboardingController?.window
+            ) else { return }
+            copyToPasteboard(LocalAgentSkillInstaller.mcpConfiguration(for: destination))
+            let confirmation = NSAlert()
+            confirmation.messageText = "Agent skill installed"
+            confirmation.informativeText = "Installed at \(destination.path). An MCP client configuration using its connector has been copied to the clipboard."
+            confirmation.runModal()
+        } catch {
+            present(error)
+        }
+    }
+
+    private func copyMCPConfiguration() {
+        let destination = LocalAgentSkillInstaller.globalSkillsDirectory
+            .appendingPathComponent("opensnapx-ocr", isDirectory: true)
+        copyToPasteboard(LocalAgentSkillInstaller.mcpConfiguration(for: destination))
+        showNotice("MCP configuration copied")
+    }
+
+    private func copyToPasteboard(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 
     @objc private func showAbout() {

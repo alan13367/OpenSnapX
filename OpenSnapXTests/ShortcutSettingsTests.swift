@@ -57,6 +57,20 @@ final class ShortcutSettingsTests: XCTestCase {
         XCTAssertFalse(SettingsStore(defaults: defaults).captureSoundEnabled)
     }
 
+    func testMCPDefaultsToDisabledAndPersistsExplicitOptIn() {
+        let suiteName = "OpenSnapXTests.mcp.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            return XCTFail("Could not create isolated defaults suite")
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let settings = SettingsStore(defaults: defaults)
+        XCTAssertFalse(settings.mcpEnabled)
+
+        settings.mcpEnabled = true
+        XCTAssertTrue(SettingsStore(defaults: defaults).mcpEnabled)
+    }
+
     func testShortcutDisplayStringUsesMacModifierOrder() {
         let shortcut = ShortcutDefinition(
             keyCode: UInt32(kVK_ANSI_4),

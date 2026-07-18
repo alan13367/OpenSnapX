@@ -6,23 +6,34 @@ final class SettingsWindowController: NSWindowController {
     private let settings: SettingsStore
     private let registerShortcuts: () -> [ShortcutRegistrationResult]
     private let showOnboarding: () -> Void
+    private let setMCPEnabled: (Bool) -> Void
+    private let installAgentSkill: () -> Void
+    private let copyMCPConfiguration: () -> Void
     private let permissionService = ScreenPermissionService()
 
     private let retention = NSPopUpButton()
     private let cursor = NSButton(checkboxWithTitle: "Include the pointer in captures", target: nil, action: nil)
     private let captureSound = NSButton(checkboxWithTitle: "Play a sound after capture", target: nil, action: nil)
     private let launch = NSButton(checkboxWithTitle: "Launch OpenSnapX at login", target: nil, action: nil)
+    private let mcpEnabled = NSButton(checkboxWithTitle: "Enable local MCP for AI agents", target: nil, action: nil)
+    private let mcpStatus = NSTextField(labelWithString: "Off")
     private var shortcutRecorders: [ShortcutAction: ShortcutRecorderControl] = [:]
     private var shortcutStatusLabels: [ShortcutAction: NSTextField] = [:]
 
     init(
         settings: SettingsStore,
         registerShortcuts: @escaping () -> [ShortcutRegistrationResult],
-        showOnboarding: @escaping () -> Void
+        showOnboarding: @escaping () -> Void,
+        setMCPEnabled: @escaping (Bool) -> Void,
+        installAgentSkill: @escaping () -> Void,
+        copyMCPConfiguration: @escaping () -> Void
     ) {
         self.settings = settings
         self.registerShortcuts = registerShortcuts
         self.showOnboarding = showOnboarding
+        self.setMCPEnabled = setMCPEnabled
+        self.installAgentSkill = installAgentSkill
+        self.copyMCPConfiguration = copyMCPConfiguration
 
         let window = NSWindow(
             contentRect: CGRect(x: 0, y: 0, width: 760, height: 760),
@@ -75,13 +86,11 @@ final class SettingsWindowController: NSWindowController {
         headerLabels.trailingAnchor.constraint(equalTo: header.trailingAnchor).isActive = true
 
         let captureSection = makeCaptureSection()
+        let mcpSection = makeMCPSection()
         let shortcutSection = makeShortcutSection()
         let footer = makeFooter()
-        let flexibleSpace = NSView()
-        flexibleSpace.setContentHuggingPriority(.defaultLow, for: .vertical)
-        flexibleSpace.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
 
-        for view in [header, captureSection, shortcutSection, footer] {
+        for view in [header, captureSection, mcpSection, shortcutSection, footer] {
             view.setContentHuggingPriority(.required, for: .vertical)
             view.setContentCompressionResistancePriority(.required, for: .vertical)
         }
@@ -91,19 +100,36 @@ final class SettingsWindowController: NSWindowController {
             separator(),
             captureSection,
             separator(),
+            mcpSection,
+            separator(),
             shortcutSection,
-            flexibleSpace,
             separator(),
             footer
         ], spacing: 14)
-        root.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(root)
+        let documentView = SettingsDocumentView()
+        documentView.translatesAutoresizingMaskIntoConstraints = false
+        let scrollView = NSScrollView()
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.drawsBackground = false
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.documentView = documentView
+        content.addSubview(scrollView)
 
+        root.translatesAutoresizingMaskIntoConstraints = false
+        documentView.addSubview(root)
         NSLayoutConstraint.activate([
-            root.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 36),
-            root.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -36),
-            root.topAnchor.constraint(equalTo: content.topAnchor, constant: 40),
-            root.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -24)
+            scrollView.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            scrollView.topAnchor.constraint(equalTo: content.topAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            documentView.leadingAnchor.constraint(equalTo: scrollView.contentView.leadingAnchor),
+            documentView.topAnchor.constraint(equalTo: scrollView.contentView.topAnchor),
+            documentView.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor),
+            root.leadingAnchor.constraint(equalTo: documentView.leadingAnchor, constant: 36),
+            root.trailingAnchor.constraint(equalTo: documentView.trailingAnchor, constant: -36),
+            root.topAnchor.constraint(equalTo: documentView.topAnchor, constant: 40),
+            root.bottomAnchor.constraint(equalTo: documentView.bottomAnchor, constant: -24)
         ])
         for view in root.arrangedSubviews {
             view.widthAnchor.constraint(equalTo: root.widthAnchor).isActive = true
@@ -116,6 +142,7 @@ final class SettingsWindowController: NSWindowController {
         cursor.state = settings.includeCursor ? .on : .off
         captureSound.state = settings.captureSoundEnabled ? .on : .off
         launch.state = settings.launchAtLogin ? .on : .off
+        mcpEnabled.state = settings.mcpEnabled ? .on : .off
 
         for control in [retention, cursor, captureSound] {
             control.target = self
@@ -123,6 +150,8 @@ final class SettingsWindowController: NSWindowController {
         }
         launch.target = self
         launch.action = #selector(launchAtLoginChanged)
+        mcpEnabled.target = self
+        mcpEnabled.action = #selector(mcpEnabledChanged)
 
         retention.controlSize = .regular
         retention.widthAnchor.constraint(equalToConstant: 220).isActive = true
@@ -158,6 +187,43 @@ final class SettingsWindowController: NSWindowController {
         return verticalStack([heading, options, checks], spacing: 10)
     }
 
+    private func makeMCPSection() -> NSView {
+        let heading = sectionHeading(
+            "AI Agents",
+            detail: "Optional local MCP access for window OCR by clients running as your macOS user, without per-request confirmation. Captures are not added to history.",
+            symbol: "network",
+            color: .systemGreen
+        )
+
+        mcpEnabled.font = .systemFont(ofSize: 13)
+        mcpEnabled.toolTip = "Allow local MCP clients running as your macOS user to list and capture non-focused windows"
+        mcpEnabled.setAccessibilityHelp(mcpEnabled.toolTip)
+        mcpStatus.font = .systemFont(ofSize: 11, weight: .medium)
+        mcpStatus.alignment = .right
+        mcpStatus.lineBreakMode = .byTruncatingMiddle
+        mcpStatus.widthAnchor.constraint(equalToConstant: 180).isActive = true
+        let statusSpacer = NSView()
+        statusSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let statusRow = horizontalStack([mcpEnabled, statusSpacer, mcpStatus], spacing: 10)
+        statusRow.edgeInsets = NSEdgeInsets(top: 4, left: 34, bottom: 0, right: 0)
+
+        let install = NSButton(title: "Install Agent Skill…", target: self, action: #selector(installSkill))
+        install.bezelStyle = .rounded
+        install.toolTip = "Install globally by default, or choose a project-specific .agents/skills folder"
+        install.setAccessibilityHelp(install.toolTip)
+        let copy = NSButton(title: "Copy Global Config", target: self, action: #selector(copyConfiguration))
+        copy.bezelStyle = .rounded
+        copy.toolTip = "Copy a client configuration for the default global skill location"
+        copy.setAccessibilityHelp(copy.toolTip)
+        let privacy = NSButton(title: "Screen Recording Settings…", target: self, action: #selector(openScreenRecordingSettings))
+        privacy.bezelStyle = .rounded
+        let buttonSpacer = NSView()
+        buttonSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let buttons = horizontalStack([buttonSpacer, privacy, copy, install], spacing: 8)
+
+        return verticalStack([heading, statusRow, buttons], spacing: 8)
+    }
+
     private func makeShortcutSection() -> NSView {
         let heading = sectionHeading(
             "Keyboard shortcuts",
@@ -191,10 +257,10 @@ final class SettingsWindowController: NSWindowController {
     private func makeFooter() -> NSView {
         let rerun = NSButton(title: "Run Onboarding Again…", target: self, action: #selector(rerunOnboarding))
         rerun.bezelStyle = .rounded
-        rerun.toolTip = "Review screen access and keyboard shortcut setup"
+        rerun.toolTip = "Review screen access, local MCP, and keyboard shortcut setup"
         rerun.setAccessibilityHelp(rerun.toolTip)
 
-        let note = NSTextField(labelWithString: "Screen access and shortcut setup")
+        let note = NSTextField(labelWithString: "Screen access, local MCP, and shortcut setup")
         note.font = .systemFont(ofSize: 11)
         note.textColor = .tertiaryLabelColor
 
@@ -330,6 +396,22 @@ final class SettingsWindowController: NSWindowController {
         settings.captureSoundEnabled = captureSound.state == .on
     }
 
+    @objc private func mcpEnabledChanged() {
+        setMCPEnabled(mcpEnabled.state == .on)
+    }
+
+    @objc private func installSkill() {
+        installAgentSkill()
+    }
+
+    @objc private func copyConfiguration() {
+        copyMCPConfiguration()
+    }
+
+    @objc private func openScreenRecordingSettings() {
+        permissionService.openSystemSettings()
+    }
+
     @objc private func launchAtLoginChanged() {
         let shouldLaunch = launch.state == .on
         do {
@@ -359,6 +441,18 @@ final class SettingsWindowController: NSWindowController {
         showOnboarding()
     }
 
+    func updateMCPStatus(_ status: String) {
+        mcpEnabled.state = settings.mcpEnabled ? .on : .off
+        mcpStatus.stringValue = "●  \(status)"
+        if status == "Ready" || status.contains("Connected") || status == "Agent Request Active…" {
+            mcpStatus.textColor = .systemGreen
+        } else if status == "Off" {
+            mcpStatus.textColor = .secondaryLabelColor
+        } else {
+            mcpStatus.textColor = .systemOrange
+        }
+    }
+
     private func refreshShortcutStatuses(_ results: [ShortcutRegistrationResult]) {
         for result in results {
             guard let label = shortcutStatusLabels[result.action] else { continue }
@@ -378,4 +472,9 @@ final class SettingsWindowController: NSWindowController {
             }
         }
     }
+}
+
+@MainActor
+private final class SettingsDocumentView: NSView {
+    override var isFlipped: Bool { true }
 }

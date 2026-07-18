@@ -26,6 +26,9 @@ targets:
         excludes:
           - Resources/Info.plist
           - Resources/OpenSnapX.entitlements
+      - path: .agents/skills/opensnapx-ocr
+        type: folder
+        buildPhase: resources
     resources:
       - path: OpenSnapX/Resources/Assets.xcassets
     info:
@@ -42,7 +45,7 @@ targets:
         LSMinimumSystemVersion: "$(MACOSX_DEPLOYMENT_TARGET)"
         LSUIElement: true
         NSHighResolutionCapable: true
-        NSScreenCaptureUsageDescription: OpenSnapX needs Screen Recording access to capture screenshots you request. Captures stay on this Mac.
+        NSScreenCaptureUsageDescription: OpenSnapX needs Screen Recording access for screenshots requested by you or a local MCP client after you enable AI agent access. Captures stay on this Mac.
         NSHumanReadableCopyright: Copyright © 2026 OpenSnapX contributors. GPL-3.0.
         NSPrincipalClass: NSApplication
     entitlements:
