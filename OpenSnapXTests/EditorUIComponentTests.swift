@@ -89,6 +89,32 @@ final class EditorUIComponentTests: XCTestCase {
         XCTAssertEqual(typingFont.pointSize, 40)
     }
 
+    func testTextReviewCopiesCorrectedText() throws {
+        var copiedText: String?
+        let controller = TextReviewWindowController(text: "Rec0gnized text") { text in
+            copiedText = text
+        }
+        let content = try XCTUnwrap(controller.window?.contentView)
+        let textView = try XCTUnwrap(findSubview(of: NSTextView.self, in: content))
+        let copyButton = try XCTUnwrap(findSubview(of: NSButton.self, in: content))
+
+        textView.string = "Recognized text"
+        controller.textDidChange(Notification(name: NSText.didChangeNotification, object: textView))
+        copyButton.performClick(nil)
+
+        XCTAssertEqual(copiedText, "Recognized text")
+    }
+
+    func testTextReviewDisablesCopyForEmptyText() throws {
+        let controller = TextReviewWindowController(text: "") { _ in
+            XCTFail("Empty text should not be copied")
+        }
+        let content = try XCTUnwrap(controller.window?.contentView)
+        let copyButton = try XCTUnwrap(findSubview(of: NSButton.self, in: content))
+
+        XCTAssertFalse(copyButton.isEnabled)
+    }
+
     private func findSubview<T: NSView>(of type: T.Type, in view: NSView) -> T? {
         if let match = view as? T { return match }
         for subview in view.subviews {

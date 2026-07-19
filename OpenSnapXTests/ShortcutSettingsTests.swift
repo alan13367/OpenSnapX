@@ -57,6 +57,85 @@ final class ShortcutSettingsTests: XCTestCase {
         XCTAssertFalse(SettingsStore(defaults: defaults).captureSoundEnabled)
     }
 
+    func testPostCaptureActionsPreserveExistingDefaults() {
+        let suiteName = "OpenSnapXTests.postCaptureDefaults.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            return XCTFail("Could not create isolated defaults suite")
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let settings = SettingsStore(defaults: defaults)
+        XCTAssertEqual(settings.postCaptureAction(for: .region), .openEditor)
+        XCTAssertEqual(settings.postCaptureAction(for: .window), .openEditor)
+        XCTAssertEqual(settings.postCaptureAction(for: .display), .openEditor)
+        XCTAssertEqual(settings.postCaptureAction(for: .scrolling), .openEditor)
+        XCTAssertEqual(settings.postCaptureAction(for: .text), .copyRecognizedText)
+    }
+
+    func testPostCaptureActionsPersistPerCaptureMode() {
+        let suiteName = "OpenSnapXTests.postCapturePersistence.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            return XCTFail("Could not create isolated defaults suite")
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let settings = SettingsStore(defaults: defaults)
+        settings.setPostCaptureAction(.copyToClipboard, for: .region)
+        settings.setPostCaptureAction(.keepInHistoryOnly, for: .window)
+        settings.setPostCaptureAction(.reviewBeforeCopy, for: .text)
+
+        let reloaded = SettingsStore(defaults: defaults)
+        XCTAssertEqual(reloaded.postCaptureAction(for: .region), .copyToClipboard)
+        XCTAssertEqual(reloaded.postCaptureAction(for: .window), .keepInHistoryOnly)
+        XCTAssertEqual(reloaded.postCaptureAction(for: .display), .openEditor)
+        XCTAssertEqual(reloaded.postCaptureAction(for: .text), .reviewBeforeCopy)
+    }
+
+    func testTextCaptureOnlyOffersNonRetainingTextActions() {
+        XCTAssertEqual(
+            PostCaptureAction.availableActions(for: .text),
+            [.copyRecognizedText, .reviewBeforeCopy]
+        )
+        XCTAssertFalse(PostCaptureAction.copyRecognizedText.isAvailable(for: .region))
+        XCTAssertFalse(PostCaptureAction.keepInHistoryOnly.isAvailable(for: .text))
+    }
+
+    func testInvalidPostCaptureActionFallsBackToModeDefault() {
+        let suiteName = "OpenSnapXTests.postCaptureValidation.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            return XCTFail("Could not create isolated defaults suite")
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let settings = SettingsStore(defaults: defaults)
+        settings.setPostCaptureAction(.reviewBeforeCopy, for: .display)
+        settings.setPostCaptureAction(.openEditor, for: .text)
+
+        XCTAssertEqual(settings.postCaptureAction(for: .display), .openEditor)
+        XCTAssertEqual(settings.postCaptureAction(for: .text), .copyRecognizedText)
+    }
+
+    func testSettingsExposeGeneralAndActionsTabs() throws {
+        let suiteName = "OpenSnapXTests.settingsTabs.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            return XCTFail("Could not create isolated defaults suite")
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let controller = SettingsWindowController(
+            settings: SettingsStore(defaults: defaults),
+            registerShortcuts: { [] },
+            showOnboarding: {},
+            setMCPEnabled: { _ in },
+            installAgentSkill: {},
+            copyMCPConfiguration: {}
+        )
+        let toolbar = try XCTUnwrap(controller.window?.toolbar)
+
+        XCTAssertEqual(toolbar.items.map(\.label), ["General", "Actions"])
+        XCTAssertEqual(toolbar.selectedItemIdentifier?.rawValue, "GeneralSettings")
+    }
+
     func testMCPDefaultsToDisabledAndPersistsExplicitOptIn() {
         let suiteName = "OpenSnapXTests.mcp.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {

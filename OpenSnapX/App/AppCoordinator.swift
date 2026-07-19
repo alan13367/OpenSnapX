@@ -29,6 +29,7 @@ final class AppCoordinator: NSObject {
     private var historyController: HistoryWindowController?
     private var editorControllers: [UUID: EditorWindowController] = [:]
     private var latestEditorID: UUID?
+    private var textReviewControllers: [UUID: TextReviewWindowController] = [:]
     private var scrollingController: ScrollingCaptureController?
     private var shortcutConflicts: [ShortcutAction] = []
     private var colorNoticePanel: NSPanel?
@@ -58,7 +59,11 @@ final class AppCoordinator: NSObject {
 
     private func configureStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        statusItem.button?.image = NSImage(systemSymbolName: "viewfinder", accessibilityDescription: "OpenSnapX")
+        let icon = NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: "OpenSnapX")?
+            .withSymbolConfiguration(.init(pointSize: 16, weight: .medium))
+        icon?.isTemplate = true
+        statusItem.button?.image = icon
+        statusItem.button?.imagePosition = .imageOnly
         statusItem.button?.toolTip = "OpenSnapX"
         statusItem.menu = NSMenu(title: "OpenSnapX")
         rebuildMenuSynchronously(recent: [])
@@ -206,7 +211,9 @@ final class AppCoordinator: NSObject {
                     let displayID = screen.flatMap(DisplayGeometry.displayID(for:))
                     result = try await captureService.capture(CaptureRequest(mode: .display, includeCursor: settings.includeCursor, displayID: displayID))
                 } else {
-                    let candidates = mode == .window ? try await captureService.availableWindows() : []
+                    let candidates = mode == .window || mode == .region
+                        ? try await captureService.availableWindows()
+                        : []
                     let freezesSelection = mode == .region || mode == .text
                     let frozenDisplays = freezesSelection ? try await captureFrozenDisplays() : [:]
                     let selection = try await overlayController.select(
@@ -305,54 +312,77 @@ final class AppCoordinator: NSObject {
 
     private func completeCapture(_ result: CaptureResult) async throws {
         if result.mode == .text {
-            let results: [OCRResult]
-            do {
-                results = try await ocrService.recognize(ImagePayload(image: result.image))
-            } catch {
-                Task(priority: .utility) {
-                    do {
-                        _ = try await historyStore.create(from: result)
-                        await rebuildMenu()
-                    } catch {
-                        present(error)
-                    }
-                }
-                throw error
-            }
-
-            let text = results.map(\.text).joined(separator: "\n")
-            if !text.isEmpty { exportService.copyText(text); showNotice("Text copied") }
-            else { showNotice("No text recognized") }
-            Task(priority: .utility) {
-                do {
-                    var session = try await historyStore.create(from: result)
-                    session.ocrResults = results
-                    try await historyStore.save(session)
-                    await rebuildMenu()
-                } catch {
-                    present(error)
-                }
-            }
+            try await completeTextCapture(result)
             return
         }
 
-        let session = CaptureSession(captureResult: result)
+        let action = settings.postCaptureAction(for: result.mode)
         let initialPersistence = Task(priority: .utility) {
             _ = try await historyStore.create(from: result)
         }
-        openEditor(
-            session: session,
-            image: result.image,
-            initialPersistence: initialPersistence
-        )
+        observeHistoryPersistence(initialPersistence)
+
+        switch action {
+        case .openEditor:
+            openEditor(
+                session: CaptureSession(captureResult: result),
+                image: result.image,
+                initialPersistence: initialPersistence
+            )
+        case .copyToClipboard:
+            await exportService.copy(result.image, displayScale: result.displayScale)
+            showNotice("Image copied")
+        case .keepInHistoryOnly:
+            break
+        case .copyRecognizedText, .reviewBeforeCopy:
+            assertionFailure("Text-only post-capture action used for an image capture")
+        }
+    }
+
+    private func completeTextCapture(_ result: CaptureResult) async throws {
+        let results = try await ocrService.recognize(ImagePayload(image: result.image))
+        let text = results.map(\.text).joined(separator: "\n")
+
+        switch settings.postCaptureAction(for: .text) {
+        case .copyRecognizedText:
+            if text.isEmpty {
+                showNotice("No text recognized")
+            } else {
+                exportService.copyText(text)
+                showNotice("Text copied")
+            }
+        case .reviewBeforeCopy:
+            showTextReview(text)
+        case .openEditor, .copyToClipboard, .keepInHistoryOnly:
+            assertionFailure("Image post-capture action used for Capture Text")
+        }
+    }
+
+    private func observeHistoryPersistence(_ persistence: Task<Void, Error>) {
         Task {
             do {
-                try await initialPersistence.value
+                try await persistence.value
                 await rebuildMenu()
             } catch {
                 present(error)
             }
         }
+    }
+
+    private func showTextReview(_ text: String) {
+        let id = UUID()
+        let controller = TextReviewWindowController(
+            text: text,
+            onCopy: { [weak self] text in
+                self?.exportService.copyText(text)
+                self?.showNotice("Text copied")
+            },
+            onClose: { [weak self] in
+                self?.textReviewControllers.removeValue(forKey: id)
+            }
+        )
+        textReviewControllers[id] = controller
+        controller.show()
     }
 
     private func openEditor(id: UUID) {

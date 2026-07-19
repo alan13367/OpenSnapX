@@ -13,8 +13,10 @@ OpenSnapX is a native, local-first screenshot and annotation utility for macOS. 
 - Area, window, display, scrolling, and text capture
 - Multi-display overlays with dimensions, keyboard adjustment, and window snapping
 - ScreenCaptureKit still capture with on-device Vision OCR
-- Direct-to-editor capture flow with clipboard, PNG/JPEG save, and the macOS Share sheet
-- Seven-day local editable history with automatic cleanup
+- Configurable post-capture actions for opening the editor, copying immediately, or keeping image captures in History
+- Editable OCR review before copying text, with Capture Text images processed in memory and never retained
+- Clipboard, PNG/JPEG save, and the macOS Share sheet
+- Seven-day local editable image history with automatic cleanup
 - Non-destructive arrows, lines, shapes, text, pen, highlight, counters, blur, pixelate, solid redaction, and crop
 - Undo/redo, zoom, non-destructive image resizing, annotation movement/duplication, pinned images, and focused backdrop styling
 - User-guided scrolling capture with local overlap validation and stitching
@@ -85,7 +87,7 @@ The Xcode project is generated from `project.yml`. Edit that source file and run
 
 ## Privacy and security
 
-OpenSnapX makes no network requests. Captures and OCR remain on the Mac. Editable source images created by normal capture workflows are retained for seven days by default—even after an exported image has been redacted—unless the history entry is deleted sooner. MCP captures are processed in memory and are not retained by OpenSnapX. See [PRIVACY.md](PRIVACY.md).
+OpenSnapX makes no network requests. Captures and OCR remain on the Mac. Editable source images created by normal image-capture workflows are retained for seven days by default—even after an exported image has been redacted—unless the history entry is deleted sooner. Capture Text and MCP images are processed in memory and are not retained by OpenSnapX. See [PRIVACY.md](PRIVACY.md).
 
 ## Contributing
 

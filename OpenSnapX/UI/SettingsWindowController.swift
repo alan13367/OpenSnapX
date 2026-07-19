@@ -19,6 +19,8 @@ final class SettingsWindowController: NSWindowController {
     private let mcpStatus = NSTextField(labelWithString: "Off")
     private var shortcutRecorders: [ShortcutAction: ShortcutRecorderControl] = [:]
     private var shortcutStatusLabels: [ShortcutAction: NSTextField] = [:]
+    private var postCaptureActionPopUps: [CaptureMode: NSPopUpButton] = [:]
+    private var settingsPanes: [NSToolbarItem.Identifier: NSView] = [:]
 
     init(
         settings: SettingsStore,
@@ -37,12 +39,11 @@ final class SettingsWindowController: NSWindowController {
 
         let window = NSWindow(
             contentRect: CGRect(x: 0, y: 0, width: 760, height: 760),
-            styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
         window.title = "OpenSnapX Settings"
-        window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = true
         window.minSize = NSSize(width: 720, height: 740)
         window.backgroundColor = .windowBackgroundColor
@@ -66,36 +67,50 @@ final class SettingsWindowController: NSWindowController {
 
         configureControls()
 
-        let appIcon = NSImageView(image: NSApp.applicationIconImage)
-        appIcon.imageScaling = .scaleProportionallyUpOrDown
-        appIcon.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            appIcon.widthAnchor.constraint(equalToConstant: 56),
-            appIcon.heightAnchor.constraint(equalToConstant: 56)
-        ])
+        let generalPane = makeGeneralPane()
+        let actionsPane = makeActionsPane()
+        settingsPanes = [
+            .generalSettings: generalPane,
+            .captureActions: actionsPane
+        ]
+        for pane in settingsPanes.values {
+            pane.translatesAutoresizingMaskIntoConstraints = false
+            content.addSubview(pane)
+            NSLayoutConstraint.activate([
+                pane.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+                pane.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+                pane.topAnchor.constraint(equalTo: content.topAnchor),
+                pane.bottomAnchor.constraint(equalTo: content.bottomAnchor)
+            ])
+        }
+        showSettingsPane(.generalSettings)
 
-        let title = NSTextField(labelWithString: "Settings")
-        title.font = .systemFont(ofSize: 28, weight: .bold)
-        let subtitle = NSTextField(labelWithString: "Make OpenSnapX fit the way you capture.")
-        subtitle.font = .systemFont(ofSize: 13)
-        subtitle.textColor = .secondaryLabelColor
-        let headerLabels = verticalStack([title, subtitle], spacing: 4)
-        headerLabels.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        let header = horizontalStack([appIcon, headerLabels], spacing: 16)
-        header.alignment = .centerY
-        headerLabels.trailingAnchor.constraint(equalTo: header.trailingAnchor).isActive = true
+        let toolbar = NSToolbar(identifier: "SettingsToolbar")
+        toolbar.delegate = self
+        toolbar.displayMode = .iconAndLabel
+        toolbar.allowsUserCustomization = false
+        toolbar.autosavesConfiguration = false
+        toolbar.selectedItemIdentifier = .generalSettings
+        window?.toolbar = toolbar
+        window?.toolbarStyle = .preference
+    }
 
+    private func makeGeneralPane() -> NSView {
+        let header = makeHeader(
+            title: "Settings",
+            subtitle: "Make OpenSnapX fit the way you capture."
+        )
         let captureSection = makeCaptureSection()
         let mcpSection = makeMCPSection()
         let shortcutSection = makeShortcutSection()
         let footer = makeFooter()
 
-        for view in [header, captureSection, mcpSection, shortcutSection, footer] {
+        let views = [header, captureSection, mcpSection, shortcutSection, footer]
+        for view in views {
             view.setContentHuggingPriority(.required, for: .vertical)
             view.setContentCompressionResistancePriority(.required, for: .vertical)
         }
-
-        let root = verticalStack([
+        return scrollablePane(root: verticalStack([
             header,
             separator(),
             captureSection,
@@ -105,7 +120,49 @@ final class SettingsWindowController: NSWindowController {
             shortcutSection,
             separator(),
             footer
-        ], spacing: 14)
+        ], spacing: 14))
+    }
+
+    private func makeActionsPane() -> NSView {
+        let header = makeHeader(
+            title: "Actions",
+            subtitle: "Choose what OpenSnapX does after each type of capture."
+        )
+        let actionSection = makePostCaptureActionSection()
+        for view in [header, actionSection] {
+            view.setContentHuggingPriority(.required, for: .vertical)
+            view.setContentCompressionResistancePriority(.required, for: .vertical)
+        }
+        return scrollablePane(root: verticalStack([
+            header,
+            separator(),
+            actionSection
+        ], spacing: 14))
+    }
+
+    private func makeHeader(title: String, subtitle: String) -> NSView {
+        let appIcon = NSImageView(image: NSApp.applicationIconImage)
+        appIcon.imageScaling = .scaleProportionallyUpOrDown
+        appIcon.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            appIcon.widthAnchor.constraint(equalToConstant: 56),
+            appIcon.heightAnchor.constraint(equalToConstant: 56)
+        ])
+
+        let titleLabel = NSTextField(labelWithString: title)
+        titleLabel.font = .systemFont(ofSize: 28, weight: .bold)
+        let subtitleLabel = NSTextField(labelWithString: subtitle)
+        subtitleLabel.font = .systemFont(ofSize: 13)
+        subtitleLabel.textColor = .secondaryLabelColor
+        let labels = verticalStack([titleLabel, subtitleLabel], spacing: 4)
+        labels.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let header = horizontalStack([appIcon, labels], spacing: 16)
+        header.alignment = .centerY
+        labels.trailingAnchor.constraint(equalTo: header.trailingAnchor).isActive = true
+        return header
+    }
+
+    private func scrollablePane(root: NSStackView) -> NSView {
         let documentView = SettingsDocumentView()
         documentView.translatesAutoresizingMaskIntoConstraints = false
         let scrollView = NSScrollView()
@@ -114,26 +171,22 @@ final class SettingsWindowController: NSWindowController {
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.documentView = documentView
-        content.addSubview(scrollView)
 
         root.translatesAutoresizingMaskIntoConstraints = false
         documentView.addSubview(root)
         NSLayoutConstraint.activate([
-            scrollView.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            scrollView.topAnchor.constraint(equalTo: content.topAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: content.bottomAnchor),
             documentView.leadingAnchor.constraint(equalTo: scrollView.contentView.leadingAnchor),
             documentView.topAnchor.constraint(equalTo: scrollView.contentView.topAnchor),
             documentView.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor),
             root.leadingAnchor.constraint(equalTo: documentView.leadingAnchor, constant: 36),
             root.trailingAnchor.constraint(equalTo: documentView.trailingAnchor, constant: -36),
-            root.topAnchor.constraint(equalTo: documentView.topAnchor, constant: 40),
+            root.topAnchor.constraint(equalTo: documentView.topAnchor, constant: 32),
             root.bottomAnchor.constraint(equalTo: documentView.bottomAnchor, constant: -24)
         ])
         for view in root.arrangedSubviews {
             view.widthAnchor.constraint(equalTo: root.widthAnchor).isActive = true
         }
+        return scrollView
     }
 
     private func configureControls() {
@@ -160,13 +213,13 @@ final class SettingsWindowController: NSWindowController {
     private func makeCaptureSection() -> NSView {
         let heading = sectionHeading(
             "Capture",
-            detail: "Captured screenshots open directly in the editor.",
+            detail: "Configure what happens after capture in the Actions tab.",
             symbol: "camera.viewfinder",
             color: .systemBlue
         )
 
         let options = verticalStack([
-            preferenceRow("History retention", detail: "How long editable captures are kept", control: retention)
+            preferenceRow("History retention", detail: "How long editable image captures are kept", control: retention)
         ], spacing: 0)
 
         cursor.font = .systemFont(ofSize: 13)
@@ -185,6 +238,50 @@ final class SettingsWindowController: NSWindowController {
         let checks = verticalStack([captureChecks, launchRow], spacing: 8)
 
         return verticalStack([heading, options, checks], spacing: 10)
+    }
+
+    private func makePostCaptureActionSection() -> NSView {
+        let heading = sectionHeading(
+            "After Capture",
+            detail: "Image captures always remain available in History. Capture Text processes its image in memory and never saves it.",
+            symbol: "bolt.fill",
+            color: .systemOrange
+        )
+
+        var rows: [NSView] = []
+        for (index, mode) in CaptureMode.allCases.enumerated() {
+            if index > 0 { rows.append(insetSeparator()) }
+            rows.append(postCaptureActionRow(for: mode))
+        }
+        return verticalStack([heading, verticalStack(rows, spacing: 0)], spacing: 10)
+    }
+
+    private func postCaptureActionRow(for mode: CaptureMode) -> NSView {
+        let popUp = NSPopUpButton()
+        popUp.controlSize = .regular
+        popUp.widthAnchor.constraint(equalToConstant: 220).isActive = true
+        popUp.target = self
+        popUp.action = #selector(postCaptureActionChanged(_:))
+        popUp.setAccessibilityLabel("Action after \(mode.displayName)")
+
+        for action in PostCaptureAction.availableActions(for: mode) {
+            let item = NSMenuItem(title: action.title, action: nil, keyEquivalent: "")
+            item.representedObject = action.rawValue
+            popUp.menu?.addItem(item)
+        }
+        let selectedAction = settings.postCaptureAction(for: mode)
+        popUp.selectItem(withTitle: selectedAction.title)
+        postCaptureActionPopUps[mode] = popUp
+
+        let detail: String
+        switch mode {
+        case .region: detail = "After selecting an area"
+        case .window: detail = "After capturing a window, including one selected with Space"
+        case .display: detail = "After capturing an entire display"
+        case .scrolling: detail = "After completing a scrolling capture"
+        case .text: detail = "Copy OCR immediately or review and correct it first"
+        }
+        return preferenceRow(mode.displayName, detail: detail, control: popUp)
     }
 
     private func makeMCPSection() -> NSView {
@@ -396,6 +493,24 @@ final class SettingsWindowController: NSWindowController {
         settings.captureSoundEnabled = captureSound.state == .on
     }
 
+    @objc private func postCaptureActionChanged(_ sender: NSPopUpButton) {
+        guard let mode = postCaptureActionPopUps.first(where: { $0.value === sender })?.key,
+              let rawValue = sender.selectedItem?.representedObject as? String,
+              let action = PostCaptureAction(rawValue: rawValue) else { return }
+        settings.setPostCaptureAction(action, for: mode)
+    }
+
+    @objc private func selectSettingsPane(_ sender: NSToolbarItem) {
+        showSettingsPane(sender.itemIdentifier)
+    }
+
+    private func showSettingsPane(_ identifier: NSToolbarItem.Identifier) {
+        for (paneIdentifier, pane) in settingsPanes {
+            pane.isHidden = paneIdentifier != identifier
+        }
+        window?.toolbar?.selectedItemIdentifier = identifier
+    }
+
     @objc private func mcpEnabledChanged() {
         setMCPEnabled(mcpEnabled.state == .on)
     }
@@ -472,6 +587,46 @@ final class SettingsWindowController: NSWindowController {
             }
         }
     }
+}
+
+extension SettingsWindowController: NSToolbarDelegate {
+    nonisolated func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        [.generalSettings, .captureActions]
+    }
+
+    nonisolated func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        [.generalSettings, .captureActions]
+    }
+
+    nonisolated func toolbarSelectableItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        [.generalSettings, .captureActions]
+    }
+
+    func toolbar(
+        _ toolbar: NSToolbar,
+        itemForItemIdentifier identifier: NSToolbarItem.Identifier,
+        willBeInsertedIntoToolbar flag: Bool
+    ) -> NSToolbarItem? {
+        let item = NSToolbarItem(itemIdentifier: identifier)
+        switch identifier {
+        case .generalSettings:
+            item.label = "General"
+            item.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: "General settings")
+        case .captureActions:
+            item.label = "Actions"
+            item.image = NSImage(systemSymbolName: "bolt.fill", accessibilityDescription: "Capture actions")
+        default:
+            return nil
+        }
+        item.target = self
+        item.action = #selector(selectSettingsPane(_:))
+        return item
+    }
+}
+
+private extension NSToolbarItem.Identifier {
+    static let generalSettings = NSToolbarItem.Identifier("GeneralSettings")
+    static let captureActions = NSToolbarItem.Identifier("CaptureActions")
 }
 
 @MainActor

@@ -8,10 +8,11 @@ OpenSnapX is local-first by design:
 - While MCP is enabled, any process running as the current macOS user can connect to that socket and request the exposed capture and OCR tools; access is not limited to a particular agent application and requests do not require per-request confirmation.
 - MCP access does not require Accessibility permission. OpenSnapX does not focus, unminimize, click, type into, or otherwise control other applications for MCP capture.
 - OCR uses Apple's Vision framework on the Mac at the capture's original resolution.
-- Captures created through normal OpenSnapX workflows are stored in the app container under Application Support for seven days by default. Retention can be changed or disabled in Settings.
+- Image captures created through normal OpenSnapX workflows are stored in the app container under Application Support for seven days by default, including captures configured to copy to the clipboard or remain in History without opening the editor. Retention can be changed or disabled in Settings.
+- Capture Text images are processed in memory for OCR and are never added to history or otherwise retained by OpenSnapX. Recognized text is copied immediately or shown in an editable review window according to the action selected in Settings, then released when that flow ends.
 - MCP captures and OCR are processed in memory and are not added to OpenSnapX history. Screenshot bytes are encoded only when the requesting agent explicitly asks for the image and are released after the response.
 - A redacted export is flattened, but the original source from a normal capture remains in editable history until that entry is deleted or expires.
-- Saving and sharing happen only after an explicit user action through the clipboard, a save panel, drag-and-drop, or the system Share sheet.
+- Clipboard writes happen only after the user starts a capture configured to copy its result or presses a copy control. Saving and sharing happen only through an explicit save, drag-and-drop, or system Share sheet action.
 - Installing the optional agent skill requires an explicit user action and a macOS file-selection prompt. OpenSnapX does not silently edit agent or MCP client configuration.
 
 If future functionality changes any of these properties, this document and the in-app explanation must change before release.

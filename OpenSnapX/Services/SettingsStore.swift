@@ -12,20 +12,25 @@ final class SettingsStore {
         static let launchAtLogin = "launchAtLogin"
         static let exportFormat = "exportFormat"
         static let mcpEnabled = "mcpEnabled"
+        static let postCaptureActionPrefix = "postCaptureAction."
     }
 
     private let defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        defaults.register(defaults: [
+        var registeredDefaults: [String: Any] = [
             Key.historyRetentionDays: 7,
             Key.includeCursor: false,
             Key.captureSoundEnabled: true,
             Key.launchAtLogin: false,
             Key.exportFormat: ExportFormat.png.rawValue,
             Key.mcpEnabled: false
-        ])
+        ]
+        for mode in CaptureMode.allCases {
+            registeredDefaults[postCaptureActionKey(for: mode)] = PostCaptureAction.defaultAction(for: mode).rawValue
+        }
+        defaults.register(defaults: registeredDefaults)
     }
 
     var completedOnboarding: Bool {
@@ -63,6 +68,21 @@ final class SettingsStore {
         set { defaults.set(newValue, forKey: Key.mcpEnabled) }
     }
 
+    func postCaptureAction(for mode: CaptureMode) -> PostCaptureAction {
+        let fallback = PostCaptureAction.defaultAction(for: mode)
+        guard let rawValue = defaults.string(forKey: postCaptureActionKey(for: mode)),
+              let action = PostCaptureAction(rawValue: rawValue),
+              action.isAvailable(for: mode) else {
+            return fallback
+        }
+        return action
+    }
+
+    func setPostCaptureAction(_ action: PostCaptureAction, for mode: CaptureMode) {
+        let validAction = action.isAvailable(for: mode) ? action : PostCaptureAction.defaultAction(for: mode)
+        defaults.set(validAction.rawValue, forKey: postCaptureActionKey(for: mode))
+    }
+
     func shortcut(for action: ShortcutAction) -> ShortcutDefinition {
         guard let data = defaults.data(forKey: shortcutKey(for: action)),
               var shortcut = try? JSONDecoder().decode(ShortcutDefinition.self, from: data) else {
@@ -87,5 +107,9 @@ final class SettingsStore {
 
     private func shortcutKey(for action: ShortcutAction) -> String {
         "shortcut.\(action.rawValue)"
+    }
+
+    private func postCaptureActionKey(for mode: CaptureMode) -> String {
+        "\(Key.postCaptureActionPrefix)\(mode.rawValue)"
     }
 }

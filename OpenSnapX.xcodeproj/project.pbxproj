@@ -29,6 +29,7 @@
 		5B4E5FBE8732BB289A2BB5E0 /* AppCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70A09CD66815B42CF3F8602B /* AppCoordinator.swift */; };
 		5F421F1D60B7F08A0CC5767D /* ShortcutManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7094A98DA55272A8DD061485 /* ShortcutManager.swift */; };
 		5F4A6282D9559A5055577D22 /* AgentSkillInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9E13BA6B70B53F7F9C3039F /* AgentSkillInstaller.swift */; };
+		5FDBFEE722792649FE59AF1D /* TextReviewWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A4FB6556C96FD5B799AC8D9 /* TextReviewWindowController.swift */; };
 		61FF783497BA9D0A4F4C7FD1 /* MCPTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 365AA2618CBC91701FA1B2F8 /* MCPTests.swift */; };
 		62ADBB0BAE0826AF106CD993 /* HistoryWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AC7B39E6678B603F8B0F1FB /* HistoryWindowController.swift */; };
 		63B918EFA162FF87F7340A91 /* BackdropPanelController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34A21DBB18B8284448FA5694 /* BackdropPanelController.swift */; };
@@ -43,6 +44,7 @@
 		85FC60860A2D22C32C2453E3 /* PinnedImageController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B42512FD6CFB41064E454F63 /* PinnedImageController.swift */; };
 		8C3E34CBA95270DED327DC99 /* opensnapx-ocr in Resources */ = {isa = PBXBuildFile; fileRef = 6C9521B4FFD621FF5369E168 /* opensnapx-ocr */; };
 		8DFF096F48BD02286FDA29A9 /* OpenSnapXModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 077227E4597895DE04CDF2C1 /* OpenSnapXModels.swift */; };
+		8F2D750F3D7EBC67D733163F /* PostCaptureAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2FF07518FFA6C5F091EE40A /* PostCaptureAction.swift */; };
 		97E8334999360A656D5FD45E /* ScrollingCaptureEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87DEF211632EF49EFFAD613F /* ScrollingCaptureEngineTests.swift */; };
 		99CA9E9EA449557B21189FDF /* ScrollingCaptureEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89D6A7F2EEBAED46782AB890 /* ScrollingCaptureEngine.swift */; };
 		9F1ED6E08AA8D7AADF4AAE57 /* SettingsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69E1CFF477EBBA7FCA2365AD /* SettingsWindowController.swift */; };
@@ -76,6 +78,7 @@
 		0720A913F9E641F1D4681B17 /* EditorWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorWindowController.swift; sourceTree = "<group>"; };
 		077227E4597895DE04CDF2C1 /* OpenSnapXModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenSnapXModels.swift; sourceTree = "<group>"; };
 		07C1787221C5E8BCCF489A75 /* ImageRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageRenderer.swift; sourceTree = "<group>"; };
+		0A4FB6556C96FD5B799AC8D9 /* TextReviewWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextReviewWindowController.swift; sourceTree = "<group>"; };
 		1493064AFB6C02A11D423A0D /* EditorToolbarModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorToolbarModels.swift; sourceTree = "<group>"; };
 		1A99A751402F3778AAA6F4DC /* ImageRendererTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageRendererTests.swift; sourceTree = "<group>"; };
 		1AC7B39E6678B603F8B0F1FB /* HistoryWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryWindowController.swift; sourceTree = "<group>"; };
@@ -120,6 +123,7 @@
 		BAA5AE330769B7EA9F12D954 /* MCPModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPModels.swift; sourceTree = "<group>"; };
 		BB6F48E41BB105DE1F5CB8B7 /* MCPProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPProtocol.swift; sourceTree = "<group>"; };
 		C0FB2E1A9E2B93202897D374 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		C2FF07518FFA6C5F091EE40A /* PostCaptureAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostCaptureAction.swift; sourceTree = "<group>"; };
 		C5B7342B509D01F8BB3A91EB /* ImageCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageCodec.swift; sourceTree = "<group>"; };
 		D5E0F4ED622BC19B4270AFFF /* Geometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Geometry.swift; sourceTree = "<group>"; };
 		D7E67877613668E83743B77D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -197,6 +201,7 @@
 			children = (
 				BAA5AE330769B7EA9F12D954 /* MCPModels.swift */,
 				077227E4597895DE04CDF2C1 /* OpenSnapXModels.swift */,
+				C2FF07518FFA6C5F091EE40A /* PostCaptureAction.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -303,6 +308,7 @@
 				0265A0FA717DFCCC94E67A04 /* ScrollingCaptureController.swift */,
 				69E1CFF477EBBA7FCA2365AD /* SettingsWindowController.swift */,
 				51C4468E6661698246E3CE68 /* ShortcutRecorderControl.swift */,
+				0A4FB6556C96FD5B799AC8D9 /* TextReviewWindowController.swift */,
 				68F395437869B93D5E99D14F /* Editor */,
 			);
 			path = UI;
@@ -446,6 +452,7 @@
 				51CE90FA36949660585BC0C1 /* OnboardingWindowController.swift in Sources */,
 				8DFF096F48BD02286FDA29A9 /* OpenSnapXModels.swift in Sources */,
 				85FC60860A2D22C32C2453E3 /* PinnedImageController.swift in Sources */,
+				8F2D750F3D7EBC67D733163F /* PostCaptureAction.swift in Sources */,
 				4B43B7B1A331E33589512DB4 /* RichText.swift in Sources */,
 				72D9C01356F23DB2FC75A1A7 /* ScreenCaptureService.swift in Sources */,
 				2222547240BFDF17EA885A24 /* ScreenPermissionService.swift in Sources */,
@@ -456,6 +463,7 @@
 				5F421F1D60B7F08A0CC5767D /* ShortcutManager.swift in Sources */,
 				B07A6672D359937FA6EFD261 /* ShortcutRecorderControl.swift in Sources */,
 				3C8B35E94D69228116246056 /* TextFormattingToolbarController.swift in Sources */,
+				5FDBFEE722792649FE59AF1D /* TextReviewWindowController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
