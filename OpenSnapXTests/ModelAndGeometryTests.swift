@@ -111,6 +111,47 @@ final class ModelAndGeometryTests: XCTestCase {
         )
     }
 
+    func testSelectionGeometryIncludesStrokeAndOverlayPadding() {
+        let annotation = Annotation(
+            kind: .pen,
+            frame: CanvasRect(CGRect(x: 10, y: 20, width: 80, height: 40)),
+            points: [CanvasPoint(CGPoint(x: 10, y: 20)), CanvasPoint(CGPoint(x: 90, y: 60))],
+            style: AnnotationStyle(lineWidth: 10)
+        )
+
+        XCTAssertEqual(
+            AnnotationCanvasGeometry.selectionFrame(for: annotation, overlayPadding: 5),
+            CGRect(x: 0, y: 10, width: 100, height: 60)
+        )
+    }
+
+    func testResizeGeometryMovesOnlyRequestedEdges() {
+        let resized = AnnotationCanvasGeometry.resizedFrame(
+            CGRect(x: 10, y: 20, width: 80, height: 40),
+            for: .resizeTopLeft,
+            by: CGPoint(x: 15, y: 10)
+        )
+
+        XCTAssertEqual(resized, CGRect(x: 25, y: 30, width: 65, height: 30))
+    }
+
+    func testCornerHandleTakesPriorityOverAnnotationBody() {
+        let annotation = Annotation(
+            kind: .rectangle,
+            frame: CanvasRect(CGRect(x: 10, y: 20, width: 80, height: 40))
+        )
+
+        XCTAssertEqual(
+            AnnotationCanvasGeometry.dragOperation(
+                for: annotation,
+                at: CGPoint(x: 5, y: 15),
+                selectionPadding: 5,
+                handleSize: 20
+            ),
+            .resizeTopLeft
+        )
+    }
+
     func testLineHitAreaIsEasierThanItsVisibleStroke() {
         let distance = AnnotationCanvasGeometry.distance(
             from: CGPoint(x: 50, y: 26),

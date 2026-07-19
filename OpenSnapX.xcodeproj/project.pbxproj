@@ -7,23 +7,31 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		073EDF792011229EEBDB51C5 /* EditorCanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACB545A149B24E11749DB7F9 /* EditorCanvasView.swift */; };
 		16D621F285B54E2FD144A437 /* Geometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5E0F4ED622BC19B4270AFFF /* Geometry.swift */; };
 		2222547240BFDF17EA885A24 /* ScreenPermissionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA0EB68EEE9C9DDEC590913A /* ScreenPermissionService.swift */; };
 		27B92ECCC6A41158C0B39AA3 /* MCPModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAA5AE330769B7EA9F12D954 /* MCPModels.swift */; };
 		2BEC7C9FA7F68250F60B8ADA /* MCPToolService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C91CA3316F3938366FF1CEA /* MCPToolService.swift */; };
 		313F3911B233AAAE07C00573 /* ScrollingCaptureController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0265A0FA717DFCCC94E67A04 /* ScrollingCaptureController.swift */; };
+		32C6E0F2560DD0D4560CBFE5 /* ImageResizePopoverController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C6815CB470946CCE8EECF66 /* ImageResizePopoverController.swift */; };
+		34C271F30D966ACFEEE0BAA2 /* EditorTool.swift in Sources */ = {isa = PBXBuildFile; fileRef = 564E8620A98B5A01CE46C41D /* EditorTool.swift */; };
+		37ABF321CBC2705255D33194 /* EditorToolbarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D3B319BDA4536076BE05D0A /* EditorToolbarController.swift */; };
 		3873AA88AB5576E734C709E6 /* HistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E35A11A1ADF8E80A63BA8CA8 /* HistoryStore.swift */; };
+		3C8B35E94D69228116246056 /* TextFormattingToolbarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 793B61DE071DA5076A6406A1 /* TextFormattingToolbarController.swift */; };
+		3D70A4DF10D934BC75844FD7 /* BackdropPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7426B8CC0812C3DDFBCACA0D /* BackdropPreviewView.swift */; };
 		3DACF98C0DD01B8BC38F2B97 /* HistoryStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 541F26929C053F57ECE74006 /* HistoryStoreTests.swift */; };
 		41A8055A38BA0C5F60C4F19F /* CaptureSoundService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C79FF996AA28B6050E800A7 /* CaptureSoundService.swift */; };
+		42ADD045473C0F1D2AEF4E8C /* AnnotationCanvasGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42F33C40FB8581DE826AB104 /* AnnotationCanvasGeometry.swift */; };
 		47CA57CC15ABC013D264F8E3 /* ImageRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07C1787221C5E8BCCF489A75 /* ImageRenderer.swift */; };
 		4B43B7B1A331E33589512DB4 /* RichText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27A0B48E221339E47A70C2C4 /* RichText.swift */; };
+		4E6B4A76E4C89FF2D937B601 /* EditorUIComponentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 802B743BFD65C820550DED12 /* EditorUIComponentTests.swift */; };
 		51CE90FA36949660585BC0C1 /* OnboardingWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AF472DA4200D391ED21DA52 /* OnboardingWindowController.swift */; };
 		5B4E5FBE8732BB289A2BB5E0 /* AppCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70A09CD66815B42CF3F8602B /* AppCoordinator.swift */; };
 		5F421F1D60B7F08A0CC5767D /* ShortcutManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7094A98DA55272A8DD061485 /* ShortcutManager.swift */; };
 		5F4A6282D9559A5055577D22 /* AgentSkillInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9E13BA6B70B53F7F9C3039F /* AgentSkillInstaller.swift */; };
-		61B92B8F0120C022E0F523C7 /* EditorWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3211F5B2618CF375B6815B7 /* EditorWindowController.swift */; };
 		61FF783497BA9D0A4F4C7FD1 /* MCPTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 365AA2618CBC91701FA1B2F8 /* MCPTests.swift */; };
 		62ADBB0BAE0826AF106CD993 /* HistoryWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AC7B39E6678B603F8B0F1FB /* HistoryWindowController.swift */; };
+		63B918EFA162FF87F7340A91 /* BackdropPanelController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34A21DBB18B8284448FA5694 /* BackdropPanelController.swift */; };
 		6A0F920061F983159DFA89E5 /* ImageRendererTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A99A751402F3778AAA6F4DC /* ImageRendererTests.swift */; };
 		6BA5EBB601A2E8760E7F0055 /* ShortcutSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AB10C59EF2465904FDB1B53 /* ShortcutSettingsTests.swift */; };
 		6DC314D10DDDF3200D6F9616 /* MCPProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB6F48E41BB105DE1F5CB8B7 /* MCPProtocol.swift */; };
@@ -43,8 +51,13 @@
 		B19FF6900D2B7683616C4608 /* OCRServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5996176FD5DF73C9AE79F78C /* OCRServiceTests.swift */; };
 		B35B11180EE06223ED49C094 /* ModelAndGeometryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E9D2E6EBB6BA86E78D47745 /* ModelAndGeometryTests.swift */; };
 		B6FC6B9326931F83ACC00BA8 /* ExportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3747C4B6293991C7701E73A3 /* ExportService.swift */; };
+		B7228902F32EE982BCD03FA7 /* EditorToolbarModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1493064AFB6C02A11D423A0D /* EditorToolbarModels.swift */; };
+		BBAB86FEC5BBF24E965AFF0B /* EditorNoticePresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E247DB9D1F380086586902A /* EditorNoticePresenter.swift */; };
+		CDD6FDEC2C20F9DD92CCCEDE /* EditorCanvasRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9209DFF413291C257A4DB18 /* EditorCanvasRenderer.swift */; };
 		CE63113B23CA3C8210606911 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FB2E1A9E2B93202897D374 /* AppDelegate.swift */; };
 		D0A04888190924725F066B41 /* Color.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A425F4DF73BEC5C2B9ECFB5 /* Color.swift */; };
+		D7744AE520921FEAB0B3E0C6 /* EditorChromeViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AF55E343ACF27D605F74F6A /* EditorChromeViews.swift */; };
+		E0454D78CA1656D23CB29BC9 /* EditorWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0720A913F9E641F1D4681B17 /* EditorWindowController.swift */; };
 		E945ECD3F7AC13D5CAD68077 /* MCPServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FE96960DE8188880DD9C70 /* MCPServer.swift */; };
 /* End PBXBuildFile section */
 
@@ -60,21 +73,29 @@
 
 /* Begin PBXFileReference section */
 		0265A0FA717DFCCC94E67A04 /* ScrollingCaptureController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollingCaptureController.swift; sourceTree = "<group>"; };
+		0720A913F9E641F1D4681B17 /* EditorWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorWindowController.swift; sourceTree = "<group>"; };
 		077227E4597895DE04CDF2C1 /* OpenSnapXModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenSnapXModels.swift; sourceTree = "<group>"; };
 		07C1787221C5E8BCCF489A75 /* ImageRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageRenderer.swift; sourceTree = "<group>"; };
+		1493064AFB6C02A11D423A0D /* EditorToolbarModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorToolbarModels.swift; sourceTree = "<group>"; };
 		1A99A751402F3778AAA6F4DC /* ImageRendererTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageRendererTests.swift; sourceTree = "<group>"; };
 		1AC7B39E6678B603F8B0F1FB /* HistoryWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryWindowController.swift; sourceTree = "<group>"; };
+		1C6815CB470946CCE8EECF66 /* ImageResizePopoverController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageResizePopoverController.swift; sourceTree = "<group>"; };
+		1D3B319BDA4536076BE05D0A /* EditorToolbarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorToolbarController.swift; sourceTree = "<group>"; };
 		1FAA31D951076D7C310E85C0 /* SettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsStore.swift; sourceTree = "<group>"; };
 		228875F2128C08F11E107EB3 /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
 		24333E5B2BB8705A99205456 /* OpenSnapX.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OpenSnapX.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		27A0B48E221339E47A70C2C4 /* RichText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RichText.swift; sourceTree = "<group>"; };
 		2AB10C59EF2465904FDB1B53 /* ShortcutSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutSettingsTests.swift; sourceTree = "<group>"; };
 		2C79FF996AA28B6050E800A7 /* CaptureSoundService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureSoundService.swift; sourceTree = "<group>"; };
+		34A21DBB18B8284448FA5694 /* BackdropPanelController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackdropPanelController.swift; sourceTree = "<group>"; };
 		365AA2618CBC91701FA1B2F8 /* MCPTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPTests.swift; sourceTree = "<group>"; };
 		3747C4B6293991C7701E73A3 /* ExportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportService.swift; sourceTree = "<group>"; };
 		38A9A269149B4B5CA65F96FE /* ScreenCaptureService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenCaptureService.swift; sourceTree = "<group>"; };
+		42F33C40FB8581DE826AB104 /* AnnotationCanvasGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationCanvasGeometry.swift; sourceTree = "<group>"; };
+		4E247DB9D1F380086586902A /* EditorNoticePresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorNoticePresenter.swift; sourceTree = "<group>"; };
 		51C4468E6661698246E3CE68 /* ShortcutRecorderControl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutRecorderControl.swift; sourceTree = "<group>"; };
 		541F26929C053F57ECE74006 /* HistoryStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryStoreTests.swift; sourceTree = "<group>"; };
+		564E8620A98B5A01CE46C41D /* EditorTool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorTool.swift; sourceTree = "<group>"; };
 		5996176FD5DF73C9AE79F78C /* OCRServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OCRServiceTests.swift; sourceTree = "<group>"; };
 		5F7F6D99C5943C7BDC088F71 /* CaptureOverlayController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureOverlayController.swift; sourceTree = "<group>"; };
 		69E1CFF477EBBA7FCA2365AD /* SettingsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowController.swift; sourceTree = "<group>"; };
@@ -83,13 +104,17 @@
 		6E9D2E6EBB6BA86E78D47745 /* ModelAndGeometryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelAndGeometryTests.swift; sourceTree = "<group>"; };
 		7094A98DA55272A8DD061485 /* ShortcutManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutManager.swift; sourceTree = "<group>"; };
 		70A09CD66815B42CF3F8602B /* AppCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppCoordinator.swift; sourceTree = "<group>"; };
+		7426B8CC0812C3DDFBCACA0D /* BackdropPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackdropPreviewView.swift; sourceTree = "<group>"; };
+		793B61DE071DA5076A6406A1 /* TextFormattingToolbarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextFormattingToolbarController.swift; sourceTree = "<group>"; };
 		7A425F4DF73BEC5C2B9ECFB5 /* Color.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Color.swift; sourceTree = "<group>"; };
+		7AF55E343ACF27D605F74F6A /* EditorChromeViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorChromeViews.swift; sourceTree = "<group>"; };
+		802B743BFD65C820550DED12 /* EditorUIComponentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorUIComponentTests.swift; sourceTree = "<group>"; };
 		87DEF211632EF49EFFAD613F /* ScrollingCaptureEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollingCaptureEngineTests.swift; sourceTree = "<group>"; };
 		87F72801932FDC4A48F65918 /* OpenSnapXTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = OpenSnapXTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		89D6A7F2EEBAED46782AB890 /* ScrollingCaptureEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollingCaptureEngine.swift; sourceTree = "<group>"; };
 		9C91CA3316F3938366FF1CEA /* MCPToolService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPToolService.swift; sourceTree = "<group>"; };
-		A3211F5B2618CF375B6815B7 /* EditorWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorWindowController.swift; sourceTree = "<group>"; };
 		A5FE96960DE8188880DD9C70 /* MCPServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPServer.swift; sourceTree = "<group>"; };
+		ACB545A149B24E11749DB7F9 /* EditorCanvasView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorCanvasView.swift; sourceTree = "<group>"; };
 		B42512FD6CFB41064E454F63 /* PinnedImageController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PinnedImageController.swift; sourceTree = "<group>"; };
 		B9E13BA6B70B53F7F9C3039F /* AgentSkillInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSkillInstaller.swift; sourceTree = "<group>"; };
 		BAA5AE330769B7EA9F12D954 /* MCPModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPModels.swift; sourceTree = "<group>"; };
@@ -98,6 +123,7 @@
 		C5B7342B509D01F8BB3A91EB /* ImageCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageCodec.swift; sourceTree = "<group>"; };
 		D5E0F4ED622BC19B4270AFFF /* Geometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Geometry.swift; sourceTree = "<group>"; };
 		D7E67877613668E83743B77D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		D9209DFF413291C257A4DB18 /* EditorCanvasRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorCanvasRenderer.swift; sourceTree = "<group>"; };
 		DA0EB68EEE9C9DDEC590913A /* ScreenPermissionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenPermissionService.swift; sourceTree = "<group>"; };
 		E35A11A1ADF8E80A63BA8CA8 /* HistoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryStore.swift; sourceTree = "<group>"; };
 		F20437A257A1EE73ED66F78D /* OCRService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OCRService.swift; sourceTree = "<group>"; };
@@ -133,6 +159,39 @@
 			path = Config;
 			sourceTree = "<group>";
 		};
+		4E3760C3F0A9BB49963AB8BE /* Backdrop */ = {
+			isa = PBXGroup;
+			children = (
+				34A21DBB18B8284448FA5694 /* BackdropPanelController.swift */,
+				7426B8CC0812C3DDFBCACA0D /* BackdropPreviewView.swift */,
+			);
+			path = Backdrop;
+			sourceTree = "<group>";
+		};
+		59B974A912931587F38FFF12 /* ImageResize */ = {
+			isa = PBXGroup;
+			children = (
+				1C6815CB470946CCE8EECF66 /* ImageResizePopoverController.swift */,
+			);
+			path = ImageResize;
+			sourceTree = "<group>";
+		};
+		68F395437869B93D5E99D14F /* Editor */ = {
+			isa = PBXGroup;
+			children = (
+				7AF55E343ACF27D605F74F6A /* EditorChromeViews.swift */,
+				4E247DB9D1F380086586902A /* EditorNoticePresenter.swift */,
+				564E8620A98B5A01CE46C41D /* EditorTool.swift */,
+				1D3B319BDA4536076BE05D0A /* EditorToolbarController.swift */,
+				1493064AFB6C02A11D423A0D /* EditorToolbarModels.swift */,
+				0720A913F9E641F1D4681B17 /* EditorWindowController.swift */,
+				4E3760C3F0A9BB49963AB8BE /* Backdrop */,
+				8A7AF6A7F87053F6864516D4 /* Canvas */,
+				59B974A912931587F38FFF12 /* ImageResize */,
+			);
+			path = Editor;
+			sourceTree = "<group>";
+		};
 		6DFFD7DB2590D0BE1D2D2573 /* Models */ = {
 			isa = PBXGroup;
 			children = (
@@ -155,9 +214,21 @@
 			path = OpenSnapX;
 			sourceTree = "<group>";
 		};
+		8A7AF6A7F87053F6864516D4 /* Canvas */ = {
+			isa = PBXGroup;
+			children = (
+				42F33C40FB8581DE826AB104 /* AnnotationCanvasGeometry.swift */,
+				D9209DFF413291C257A4DB18 /* EditorCanvasRenderer.swift */,
+				ACB545A149B24E11749DB7F9 /* EditorCanvasView.swift */,
+				793B61DE071DA5076A6406A1 /* TextFormattingToolbarController.swift */,
+			);
+			path = Canvas;
+			sourceTree = "<group>";
+		};
 		9067534942D9B6BD3C4C2C99 /* OpenSnapXTests */ = {
 			isa = PBXGroup;
 			children = (
+				802B743BFD65C820550DED12 /* EditorUIComponentTests.swift */,
 				541F26929C053F57ECE74006 /* HistoryStoreTests.swift */,
 				1A99A751402F3778AAA6F4DC /* ImageRendererTests.swift */,
 				365AA2618CBC91701FA1B2F8 /* MCPTests.swift */,
@@ -226,13 +297,13 @@
 			isa = PBXGroup;
 			children = (
 				5F7F6D99C5943C7BDC088F71 /* CaptureOverlayController.swift */,
-				A3211F5B2618CF375B6815B7 /* EditorWindowController.swift */,
 				1AC7B39E6678B603F8B0F1FB /* HistoryWindowController.swift */,
 				6AF472DA4200D391ED21DA52 /* OnboardingWindowController.swift */,
 				B42512FD6CFB41064E454F63 /* PinnedImageController.swift */,
 				0265A0FA717DFCCC94E67A04 /* ScrollingCaptureController.swift */,
 				69E1CFF477EBBA7FCA2365AD /* SettingsWindowController.swift */,
 				51C4468E6661698246E3CE68 /* ShortcutRecorderControl.swift */,
+				68F395437869B93D5E99D14F /* Editor */,
 			);
 			path = UI;
 			sourceTree = "<group>";
@@ -344,18 +415,29 @@
 			buildActionMask = 2147483647;
 			files = (
 				5F4A6282D9559A5055577D22 /* AgentSkillInstaller.swift in Sources */,
+				42ADD045473C0F1D2AEF4E8C /* AnnotationCanvasGeometry.swift in Sources */,
 				5B4E5FBE8732BB289A2BB5E0 /* AppCoordinator.swift in Sources */,
 				CE63113B23CA3C8210606911 /* AppDelegate.swift in Sources */,
+				63B918EFA162FF87F7340A91 /* BackdropPanelController.swift in Sources */,
+				3D70A4DF10D934BC75844FD7 /* BackdropPreviewView.swift in Sources */,
 				ADBEAB345BA9DEFE041F436E /* CaptureOverlayController.swift in Sources */,
 				41A8055A38BA0C5F60C4F19F /* CaptureSoundService.swift in Sources */,
 				D0A04888190924725F066B41 /* Color.swift in Sources */,
-				61B92B8F0120C022E0F523C7 /* EditorWindowController.swift in Sources */,
+				CDD6FDEC2C20F9DD92CCCEDE /* EditorCanvasRenderer.swift in Sources */,
+				073EDF792011229EEBDB51C5 /* EditorCanvasView.swift in Sources */,
+				D7744AE520921FEAB0B3E0C6 /* EditorChromeViews.swift in Sources */,
+				BBAB86FEC5BBF24E965AFF0B /* EditorNoticePresenter.swift in Sources */,
+				34C271F30D966ACFEEE0BAA2 /* EditorTool.swift in Sources */,
+				37ABF321CBC2705255D33194 /* EditorToolbarController.swift in Sources */,
+				B7228902F32EE982BCD03FA7 /* EditorToolbarModels.swift in Sources */,
+				E0454D78CA1656D23CB29BC9 /* EditorWindowController.swift in Sources */,
 				B6FC6B9326931F83ACC00BA8 /* ExportService.swift in Sources */,
 				16D621F285B54E2FD144A437 /* Geometry.swift in Sources */,
 				3873AA88AB5576E734C709E6 /* HistoryStore.swift in Sources */,
 				62ADBB0BAE0826AF106CD993 /* HistoryWindowController.swift in Sources */,
 				7B3D7E0BAA420E08385512C8 /* ImageCodec.swift in Sources */,
 				47CA57CC15ABC013D264F8E3 /* ImageRenderer.swift in Sources */,
+				32C6E0F2560DD0D4560CBFE5 /* ImageResizePopoverController.swift in Sources */,
 				27B92ECCC6A41158C0B39AA3 /* MCPModels.swift in Sources */,
 				6DC314D10DDDF3200D6F9616 /* MCPProtocol.swift in Sources */,
 				E945ECD3F7AC13D5CAD68077 /* MCPServer.swift in Sources */,
@@ -373,6 +455,7 @@
 				9F1ED6E08AA8D7AADF4AAE57 /* SettingsWindowController.swift in Sources */,
 				5F421F1D60B7F08A0CC5767D /* ShortcutManager.swift in Sources */,
 				B07A6672D359937FA6EFD261 /* ShortcutRecorderControl.swift in Sources */,
+				3C8B35E94D69228116246056 /* TextFormattingToolbarController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -380,6 +463,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				4E6B4A76E4C89FF2D937B601 /* EditorUIComponentTests.swift in Sources */,
 				3DACF98C0DD01B8BC38F2B97 /* HistoryStoreTests.swift in Sources */,
 				6A0F920061F983159DFA89E5 /* ImageRendererTests.swift in Sources */,
 				61FF783497BA9D0A4F4C7FD1 /* MCPTests.swift in Sources */,

@@ -20,6 +20,7 @@ Native macOS screenshot & annotation tool (Shottr-inspired). Swift 6 + AppKit on
 OpenSnapX/
   App/          # AppDelegate, AppCoordinator (orchestration, MCP lifecycle)
   UI/           # Window/panel controllers + custom NSViews
+    Editor/      # Editor orchestration, toolbar, canvas, renderer, geometry, panels
   Services/     # Capture, history, OCR, export, shortcuts, settings, MCP, skill install
   Models/       # Codable domain types + MCP JSON/tool models
   Support/      # Geometry, color, image codec helpers
@@ -37,6 +38,7 @@ script/         # build_and_run.sh
 - **UI on `@MainActor`.** Controllers and AppKit types stay main-actor; heavy work goes through `Sendable` service protocols.
 - **Protocol + concrete impl.** Prefer `any CaptureService`, `any HistoryStore`, `any MCPServer`, `any MCPToolHandling`, etc., so logic stays testable without UI.
 - **Coordinator owns flow.** `AppCoordinator` wires shortcuts, overlays, editor, history, permissions, and MCP start/stop/status. Don’t scatter capture or MCP lifecycle across unrelated controllers.
+- **Editor boundaries.** Under `UI/Editor`, `EditorWindowController` orchestrates session/services/undo; `EditorToolbarController` emits value-typed commands; `EditorCanvasView` owns input and annotation mutation; `EditorCanvasRenderer` only draws previews; `AnnotationCanvasGeometry` contains deterministic geometry. Keep resize, backdrop, and text-formatting UI in their existing subcomponents rather than growing the window controller or canvas renderer.
 - **History packages.** Editable captures are atomic `.opensnapx` directories (manifest + source PNG + annotations + optional OCR + thumbnail). Preserve that format when changing persistence.
 - **Sandbox.** App is sandboxed; only user-selected file read/write beyond the container. No network entitlements. Local MCP uses a Unix socket under the container temp dir plus a user-readable pointer file — not TCP.
 - **Capture split.** Interactive capture uses `CaptureService`. Agent window capture uses `WindowCaptureService` (`ScreenCaptureService` implements both). MCP must not activate, focus, unminimize, or control other apps.
@@ -105,7 +107,7 @@ Add or update `OpenSnapXTests` for service/model behavior changes (MCP protocol/
 ## Agent workflow
 
 1. Read nearby code before changing patterns; extend protocols instead of bypassing them.
-2. After `project.yml` edits, run `xcodegen generate`.
+2. After `project.yml` edits or adding/moving source files, run `xcodegen generate`.
 3. Run `xcodebuild test` (above) for logic changes; use `./script/build_and_run.sh` when you need a live UI check.
 4. Keep diffs focused; don’t refactor unrelated files or expand v1 scope unprompted.
 5. MCP/skill changes: update `MCPTests`, bundled `SKILL.md`/scripts, and privacy/UI copy together when behavior or tool contracts change.
