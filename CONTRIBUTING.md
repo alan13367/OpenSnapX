@@ -13,7 +13,7 @@ Thank you for helping build a fast, native, open screenshot tool for macOS.
 ## Development
 
 1. Install Xcode 16+ and XcodeGen.
-2. Run `./script/build_and_run.sh`.
+2. Run `./script/build.sh` (or `./script/build_and_run.sh` to launch).
 3. Add or update tests for behavior changes.
 4. Run the full `xcodebuild test` command from the README.
 

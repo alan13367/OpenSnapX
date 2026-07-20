@@ -28,7 +28,7 @@ OpenSnapX/
 .agents/skills/opensnapx-ocr/  # Bundled agent skill (SKILL.md + connect/call scripts)
 OpenSnapXTests/ # XCTest unit tests for services/models (incl. MCPTests)
 project.yml     # Authoritative XcodeGen source — never hand-edit pbxproj
-script/         # build_and_run.sh
+script/         # build.sh, build_and_run.sh
 ```
 
 `project.yml` copies `.agents/skills/opensnapx-ocr` into the app bundle as a folder resource. Edit the skill in-repo; do not maintain a second copy under `Resources/`.
@@ -90,7 +90,8 @@ Agent-facing usage docs live in `.agents/skills/opensnapx-ocr/SKILL.md` — keep
 ## Build & test
 
 ```sh
-./script/build_and_run.sh          # regenerate project if needed, build, open
+./script/build.sh              # regenerate project if needed, build
+./script/build_and_run.sh     # build, stop existing process, open
 ./script/build_and_run.sh --verify # build, launch, confirm process is alive
 
 xcodegen generate                  # after editing project.yml

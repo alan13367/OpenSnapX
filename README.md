@@ -31,18 +31,46 @@ Video/GIF recording, audio, cloud uploads, automatic scrolling, translation, and
 - Xcode 16 or later with Swift 6
 - [XcodeGen](https://github.com/yonaskolb/XcodeGen) to regenerate the checked-in Xcode project after changing `project.yml`
 
-## Build and run
+## Build
+
+Install XcodeGen once, then build from the repo root:
 
 ```sh
 brew install xcodegen
+./script/build.sh
+```
+
+That regenerates the Xcode project when needed and writes:
+
+```text
+.build/DerivedData/Build/Products/Debug/OpenSnapX.app
+```
+
+To build and launch immediately (quits any running OpenSnapX first):
+
+```sh
 ./script/build_and_run.sh
 ```
 
-The script regenerates the Xcode project when needed, stops an existing OpenSnapX process, and opens the result. When an Apple Development certificate is available it signs with that stable identity so macOS privacy grants survive rebuilds; otherwise it falls back to ad-hoc signing. Set `OPEN_SNAPX_AD_HOC_SIGN=1` to force the fallback. `--verify`, `--debug`, `--logs`, and `--telemetry` modes are also available.
+`build_and_run.sh` also accepts `--verify`, `--debug`, `--logs`, and `--telemetry`.
 
-For Xcode Run builds, copy `Config/Signing.local.xcconfig.example` to `Config/Signing.local.xcconfig`, replace `YOUR_TEAM_ID`, then run `xcodegen generate`. The local file is ignored by Git. Stable development signing matters because macOS ties Screen Recording permission to the app's code identity, and an ad-hoc identity changes after rebuilds.
+### Install / replace an existing copy
 
-To run tests directly:
+```sh
+./script/build.sh
+pkill -x OpenSnapX || true
+rm -rf /Applications/OpenSnapX.app
+cp -R .build/DerivedData/Build/Products/Debug/OpenSnapX.app /Applications/
+open /Applications/OpenSnapX.app
+```
+
+### Signing
+
+When an Apple Development certificate is available, the scripts sign with that stable identity so Screen Recording permission survives rebuilds. Otherwise they use ad-hoc signing (which can force a fresh permission grant after each rebuild). Set `OPEN_SNAPX_AD_HOC_SIGN=1` to force ad-hoc signing.
+
+For Xcode Run builds, copy `Config/Signing.local.xcconfig.example` to `Config/Signing.local.xcconfig`, replace `YOUR_TEAM_ID`, then run `xcodegen generate`. The local file is gitignored.
+
+### Tests
 
 ```sh
 xcodegen generate
@@ -61,7 +89,7 @@ xcodebuild test \
 3. With those Apple shortcuts turned off, use `⌘⇧3` for a display, `⌘⇧4` for an area/window, `⌘⇧5` for scrolling capture, and `⌘⇧2` for direct OCR. You can instead record conflict-free combinations in OpenSnapX.
 4. Optional: enable **Local MCP for AI agents** during onboarding or later in Settings. It remains off unless you explicitly enable it.
 
-Locally rebuilt ad-hoc-signed apps can cause macOS to request Screen Recording permission again. The build script avoids that when a local Apple Development certificate is installed. Signed and notarized downloadable builds require a future Apple Developer Program membership.
+Locally rebuilt ad-hoc-signed apps can cause macOS to request Screen Recording permission again. The build scripts avoid that when a local Apple Development certificate is installed. Signed and notarized downloadable builds require a future Apple Developer Program membership.
 
 ## Optional local MCP
 
