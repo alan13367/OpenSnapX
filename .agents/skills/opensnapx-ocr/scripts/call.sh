@@ -11,8 +11,9 @@ Options:
 
 Examples:
   call.sh opensnapx_status
-  call.sh opensnapx_list_windows '{"query":"Xcode","available_only":true}'
+  call.sh opensnapx_list_windows '{"query":"Xcode"}'
   call.sh --text opensnapx_capture_window_ocr '{"window_id":123}'
+  call.sh --text opensnapx_capture_window_ocr '{"query":"Xcode","region":{"x":0,"y":0,"width":1,"height":0.5}}'
 EOF
     exit 64
 }

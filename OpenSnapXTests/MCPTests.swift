@@ -172,7 +172,7 @@ final class MCPProtocolTests: XCTestCase {
 }
 
 final class MCPToolServiceTests: XCTestCase {
-    func testListWindowsMarksMinimizedWindowsUnavailable() async throws {
+    func testListWindowsDefaultsToAvailableWindows() async throws {
         let fixtures = try MCPFixtures()
         let service = MCPToolService(
             windowService: fixtures.windowService,
@@ -183,9 +183,69 @@ final class MCPToolServiceTests: XCTestCase {
         XCTAssertFalse(result.isError)
         let structured = try XCTUnwrap(result.structuredContent?.objectValue)
         let windows = try XCTUnwrap(structured["windows"]?.arrayValue)
-        XCTAssertEqual(windows.count, 2)
+        XCTAssertEqual(windows.count, 1)
         XCTAssertEqual(windows[0].objectValue?["capture_availability"], .string("available"))
+        XCTAssertEqual(structured["returned_count"], .integer(1))
+        XCTAssertEqual(structured["matched_count"], .integer(1))
+        XCTAssertEqual(structured["truncated"], .bool(false))
+    }
+
+    func testListWindowsCanIncludeUnavailableWindowsExplicitly() async throws {
+        let fixtures = try MCPFixtures()
+        let service = MCPToolService(
+            windowService: fixtures.windowService,
+            ocrService: fixtures.ocrService,
+            permissionChecker: { true }
+        )
+        let result = await service.callTool(
+            name: MCPToolService.listWindowsToolName,
+            arguments: ["available_only": .bool(false)]
+        )
+        let structured = try XCTUnwrap(result.structuredContent?.objectValue)
+        let windows = try XCTUnwrap(structured["windows"]?.arrayValue)
+        XCTAssertEqual(windows.count, 2)
         XCTAssertEqual(windows[1].objectValue?["capture_availability"], .string("unavailable"))
+        XCTAssertEqual(structured["matched_count"], .integer(2))
+    }
+
+    func testListWindowsLimitTruncatesWindowsApplicationsAndReportsCounts() async throws {
+        let fixtures = try MCPFixtures()
+        let secondApplication = RunningApplicationCandidate(
+            processID: 200,
+            applicationName: "Preview",
+            bundleIdentifier: "com.apple.Preview",
+            isActive: false,
+            isHidden: false
+        )
+        let secondWindow = WindowCandidate(
+            id: 44,
+            title: "Image",
+            applicationName: "Preview",
+            bundleIdentifier: "com.apple.Preview",
+            processID: 200,
+            frame: CGRect(x: 0, y: 0, width: 200, height: 100),
+            isOnScreen: true,
+            windowLayer: 0
+        )
+        let catalog = WindowCatalog(
+            applications: fixtures.windowService.catalog.applications + [secondApplication],
+            windows: fixtures.windowService.catalog.windows + [secondWindow]
+        )
+        let service = MCPToolService(
+            windowService: FixtureWindowService(catalog: catalog, capture: fixtures.windowService.capture),
+            ocrService: fixtures.ocrService,
+            permissionChecker: { true }
+        )
+        let result = await service.callTool(
+            name: MCPToolService.listWindowsToolName,
+            arguments: ["limit": .integer(1)]
+        )
+        let structured = try XCTUnwrap(result.structuredContent?.objectValue)
+        XCTAssertEqual(structured["windows"]?.arrayValue?.count, 1)
+        XCTAssertEqual(structured["applications"]?.arrayValue?.count, 1)
+        XCTAssertEqual(structured["returned_count"], .integer(1))
+        XCTAssertEqual(structured["matched_count"], .integer(2))
+        XCTAssertEqual(structured["truncated"], .bool(true))
     }
 
     func testListWindowsFiltersByQueryAndAvailability() async throws {
@@ -210,6 +270,140 @@ final class MCPToolServiceTests: XCTestCase {
             return XCTFail("Expected concise text content")
         }
         XCTAssertEqual(summary, "Notes — Document — window_id 42 — available")
+    }
+
+    func testCaptureResolvesUniqueWindowByQuery() async throws {
+        let fixtures = try MCPFixtures()
+        let service = MCPToolService(
+            windowService: fixtures.windowService,
+            ocrService: fixtures.ocrService,
+            permissionChecker: { true }
+        )
+        let result = await service.callTool(
+            name: MCPToolService.captureWindowToolName,
+            arguments: ["query": .string("document")]
+        )
+        XCTAssertFalse(result.isError)
+        XCTAssertEqual(
+            result.structuredContent?.objectValue?["window"]?.objectValue?["window_id"],
+            .integer(42)
+        )
+        XCTAssertEqual(result.structuredContent?.objectValue?["text"], .string("Hello\nWorld"))
+    }
+
+    func testCaptureResolvesUniqueWindowByExactBundleIdentifier() async throws {
+        let fixtures = try MCPFixtures()
+        let service = MCPToolService(
+            windowService: fixtures.windowService,
+            ocrService: fixtures.ocrService,
+            permissionChecker: { true }
+        )
+        let result = await service.callTool(
+            name: MCPToolService.captureWindowToolName,
+            arguments: ["bundle_id": .string("com.apple.Notes")]
+        )
+        XCTAssertFalse(result.isError)
+        XCTAssertEqual(
+            result.structuredContent?.objectValue?["window"]?.objectValue?["window_id"],
+            .integer(42)
+        )
+    }
+
+    func testCaptureReturnsCandidatesForAmbiguousQuery() async throws {
+        let fixtures = try MCPFixtures()
+        let secondWindow = WindowCandidate(
+            id: 44,
+            title: "Other Document",
+            applicationName: "Notes",
+            bundleIdentifier: "com.apple.Notes",
+            processID: 100,
+            frame: CGRect(x: 0, y: 0, width: 200, height: 100),
+            isOnScreen: true,
+            windowLayer: 0
+        )
+        let catalog = WindowCatalog(
+            applications: fixtures.windowService.catalog.applications,
+            windows: fixtures.windowService.catalog.windows + [secondWindow]
+        )
+        let service = MCPToolService(
+            windowService: FixtureWindowService(catalog: catalog, capture: fixtures.windowService.capture),
+            ocrService: fixtures.ocrService,
+            permissionChecker: { true }
+        )
+        let result = await service.callTool(
+            name: MCPToolService.captureWindowToolName,
+            arguments: ["query": .string("Notes")]
+        )
+        XCTAssertTrue(result.isError)
+        let error = try XCTUnwrap(result.structuredContent?.objectValue?["error"]?.objectValue)
+        XCTAssertEqual(error["code"], .string("ambiguous_window"))
+        XCTAssertEqual(error["candidate_window_ids"], .array([.integer(42), .integer(44)]))
+        XCTAssertEqual(error["returned_candidate_count"], .integer(2))
+        XCTAssertEqual(error["matched_candidate_count"], .integer(2))
+        XCTAssertEqual(error["candidates_truncated"], .bool(false))
+    }
+
+    func testCaptureBoundsAmbiguousCandidateDetails() async throws {
+        let fixtures = try MCPFixtures()
+        let additionalWindows = (0..<60).map { index in
+            WindowCandidate(
+                id: UInt32(100 + index),
+                title: "Document \(index)",
+                applicationName: "Notes",
+                bundleIdentifier: "com.apple.Notes",
+                processID: 100,
+                frame: CGRect(x: 0, y: 0, width: 200, height: 100),
+                isOnScreen: true,
+                windowLayer: 0
+            )
+        }
+        let catalog = WindowCatalog(
+            applications: fixtures.windowService.catalog.applications,
+            windows: fixtures.windowService.catalog.windows + additionalWindows
+        )
+        let service = MCPToolService(
+            windowService: FixtureWindowService(catalog: catalog, capture: fixtures.windowService.capture),
+            ocrService: fixtures.ocrService,
+            permissionChecker: { true }
+        )
+        let result = await service.callTool(
+            name: MCPToolService.captureWindowToolName,
+            arguments: ["query": .string("Notes")]
+        )
+        XCTAssertTrue(result.isError)
+        let error = try XCTUnwrap(result.structuredContent?.objectValue?["error"]?.objectValue)
+        XCTAssertEqual(
+            error["candidate_window_ids"]?.arrayValue?.count,
+            MCPToolService.maximumAmbiguousWindowCandidates
+        )
+        XCTAssertEqual(
+            error["candidates"]?.arrayValue?.count,
+            MCPToolService.maximumAmbiguousWindowCandidates
+        )
+        XCTAssertEqual(
+            error["returned_candidate_count"],
+            .integer(Int64(MCPToolService.maximumAmbiguousWindowCandidates))
+        )
+        XCTAssertEqual(error["matched_candidate_count"], .integer(61))
+        XCTAssertEqual(error["candidates_truncated"], .bool(true))
+    }
+
+    func testCaptureRejectsMixedIDAndQueryTargeting() async throws {
+        let fixtures = try MCPFixtures()
+        let service = MCPToolService(
+            windowService: fixtures.windowService,
+            ocrService: fixtures.ocrService,
+            permissionChecker: { true }
+        )
+        let result = await service.callTool(
+            name: MCPToolService.captureWindowToolName,
+            arguments: ["window_id": .integer(42), "query": .string("Document")]
+        )
+        XCTAssertTrue(result.isError)
+        XCTAssertEqual(
+            result.structuredContent?.objectValue?["error"]?.objectValue?["code"],
+            .string("invalid_arguments")
+        )
     }
 
     func testCaptureReturnsOCRWithoutScreenshotOrPersistenceByDefault() async throws {
@@ -285,6 +479,74 @@ final class MCPToolServiceTests: XCTestCase {
         let decoded = try ImageCodec.image(from: XCTUnwrap(imageData))
         XCTAssertEqual(decoded.width, 4)
         XCTAssertEqual(decoded.height, 3)
+    }
+
+    func testRegionCropsImageBeforeOCRAndPNGEncoding() async throws {
+        let fixtures = try MCPFixtures()
+        let service = MCPToolService(
+            windowService: fixtures.windowService,
+            ocrService: DimensionOCRService(),
+            permissionChecker: { true }
+        )
+        let result = await service.callTool(
+            name: MCPToolService.captureWindowToolName,
+            arguments: [
+                "window_id": .integer(42),
+                "include_screenshot": .bool(true),
+                "region": .object([
+                    "x": .number(0.25),
+                    "y": .integer(0),
+                    "width": .number(0.5),
+                    "height": .number(2.0 / 3.0)
+                ])
+            ]
+        )
+        XCTAssertFalse(result.isError)
+        let structured = try XCTUnwrap(result.structuredContent?.objectValue)
+        XCTAssertEqual(structured["text"], .string("2x2"))
+        let capture = try XCTUnwrap(structured["capture"]?.objectValue)
+        XCTAssertEqual(capture["pixel_width"], .integer(2))
+        XCTAssertEqual(capture["pixel_height"], .integer(2))
+        XCTAssertEqual(capture["region_coordinate_origin"], .string("top_left"))
+        XCTAssertEqual(capture["region"], .object([
+            "x": .number(0.25),
+            "y": .number(0),
+            "width": .number(0.5),
+            "height": .number(2.0 / 3.0)
+        ]))
+        let imageData = result.content.compactMap { content -> Data? in
+            guard case let .image(data, _) = content else { return nil }
+            return data
+        }.first
+        let decoded = try ImageCodec.image(from: XCTUnwrap(imageData))
+        XCTAssertEqual(decoded.width, 2)
+        XCTAssertEqual(decoded.height, 2)
+    }
+
+    func testCaptureRejectsRegionOutsideNormalizedBounds() async throws {
+        let fixtures = try MCPFixtures()
+        let service = MCPToolService(
+            windowService: fixtures.windowService,
+            ocrService: fixtures.ocrService,
+            permissionChecker: { true }
+        )
+        let result = await service.callTool(
+            name: MCPToolService.captureWindowToolName,
+            arguments: [
+                "window_id": .integer(42),
+                "region": .object([
+                    "x": .number(0.8),
+                    "y": .integer(0),
+                    "width": .number(0.3),
+                    "height": .integer(1)
+                ])
+            ]
+        )
+        XCTAssertTrue(result.isError)
+        XCTAssertEqual(
+            result.structuredContent?.objectValue?["error"]?.objectValue?["code"],
+            .string("invalid_arguments")
+        )
     }
 
     func testUnavailableWindowReturnsRefreshGuidance() async throws {
@@ -457,4 +719,14 @@ private struct FixtureWindowService: WindowCaptureService {
 private struct FixtureOCRService: OCRService {
     let results: [OCRResult]
     func recognize(_ image: ImagePayload) async throws -> [OCRResult] { results }
+}
+
+private struct DimensionOCRService: OCRService {
+    func recognize(_ image: ImagePayload) async throws -> [OCRResult] {
+        [OCRResult(
+            text: "\(image.image.width)x\(image.image.height)",
+            confidence: 1,
+            normalizedBounds: CanvasRect(CGRect(x: 0, y: 0, width: 1, height: 1))
+        )]
+    }
 }

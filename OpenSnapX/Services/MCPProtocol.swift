@@ -129,7 +129,7 @@ actor MCPClientSession {
                 "tools": .object([:])
             ]),
             "serverInfo": .object(serverInfo),
-            "instructions": .string("Filter opensnapx_list_windows with query and available_only immediately before capture. For ordinary text-reading requests, omit include_screenshot and include_ocr_blocks. Captures are never saved to OpenSnapX history.")
+            "instructions": .string("opensnapx_list_windows defaults to available windows and a 50-result limit. Prefer opensnapx_capture_window_ocr with query and/or an exact bundle_id; use list_windows when targeting is ambiguous. For ordinary text-reading requests, omit include_screenshot and include_ocr_blocks. Captures are never saved to OpenSnapX history.")
         ]))
     }
 

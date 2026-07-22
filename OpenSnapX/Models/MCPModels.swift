@@ -130,11 +130,15 @@ struct MCPToolCallResult: Sendable {
         return MCPToolCallResult(content: content, structuredContent: structuredContent, isError: false)
     }
 
-    static func failure(code: String, message: String, recovery: String? = nil) -> MCPToolCallResult {
-        var error: [String: JSONValue] = [
-            "code": .string(code),
-            "message": .string(message)
-        ]
+    static func failure(
+        code: String,
+        message: String,
+        recovery: String? = nil,
+        details: [String: JSONValue] = [:]
+    ) -> MCPToolCallResult {
+        var error = details
+        error["code"] = .string(code)
+        error["message"] = .string(message)
         if let recovery { error["recovery"] = .string(recovery) }
         return MCPToolCallResult(
             content: [.text(message + (recovery.map { " \($0)" } ?? ""))],

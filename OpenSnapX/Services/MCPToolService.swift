@@ -6,6 +6,9 @@ struct MCPToolService: MCPToolHandling {
     static let listWindowsToolName = "opensnapx_list_windows"
     static let captureWindowToolName = "opensnapx_capture_window_ocr"
     static let maximumScreenshotBytes = 128 * 1_024 * 1_024
+    static let defaultWindowLimit = 50
+    static let maximumWindowLimit = 200
+    static let maximumAmbiguousWindowCandidates = 50
 
     let windowService: any WindowCaptureService
     let ocrService: any OCRService
@@ -50,18 +53,27 @@ struct MCPToolService: MCPToolHandling {
                         ]),
                         "available_only": .object([
                             "type": .string("boolean"),
-                            "default": .bool(false),
+                            "default": .bool(true),
                             "description": .string("Return only windows currently available for capture.")
+                        ]),
+                        "limit": .object([
+                            "type": .string("integer"),
+                            "minimum": .integer(1),
+                            "maximum": .integer(Int64(Self.maximumWindowLimit)),
+                            "default": .integer(Int64(Self.defaultWindowLimit)),
+                            "description": .string("Maximum number of matching windows to return after filtering and sorting.")
                         ])
                     ]),
                     "additionalProperties": .bool(false)
                 ]),
-                outputSchema: Self.outputSchema(required: ["applications", "windows"])
+                outputSchema: Self.outputSchema(required: [
+                    "applications", "windows", "returned_count", "matched_count", "truncated"
+                ])
             ),
             MCPToolDefinition(
                 name: Self.captureWindowToolName,
                 title: "Capture Window and Run OCR",
-                description: "Capture a non-focused, non-minimized macOS window and return concise on-device OCR text. OCR block geometry and the original-resolution PNG are omitted unless explicitly requested. Captures are never added to OpenSnapX history.",
+                description: "Capture a non-focused, non-minimized macOS window or normalized region and return concise on-device OCR text. OCR block geometry and PNG pixels are omitted unless explicitly requested. Captures are never added to OpenSnapX history.",
                 inputSchema: .object([
                     "type": .string("object"),
                     "properties": .object([
@@ -71,18 +83,57 @@ struct MCPToolService: MCPToolHandling {
                             "maximum": .integer(Int64(UInt32.max)),
                             "description": .string("Window ID returned by opensnapx_list_windows.")
                         ]),
+                        "query": .object([
+                            "type": .string("string"),
+                            "maxLength": .integer(200),
+                            "description": .string("Case-insensitive window-title or application-name target. A unique best capturable match is required.")
+                        ]),
+                        "bundle_id": .object([
+                            "type": .string("string"),
+                            "maxLength": .integer(200),
+                            "description": .string("Exact application bundle identifier used to narrow query targeting.")
+                        ]),
                         "include_screenshot": .object([
                             "type": .string("boolean"),
                             "default": .bool(false),
-                            "description": .string("Return the original-resolution PNG. Leave false for text-reading and OCR requests.")
+                            "description": .string("Return the captured window or selected region as a PNG at original pixel density. Leave false for text-reading and OCR requests.")
                         ]),
                         "include_ocr_blocks": .object([
                             "type": .string("boolean"),
                             "default": .bool(false),
-                            "description": .string("Return per-block confidence and coordinates. Leave false unless spatial OCR data is needed.")
+                            "description": .string("Return per-block confidence and top-left normalized coordinates relative to the OCR image or selected region. Leave false unless spatial OCR data is needed.")
+                        ]),
+                        "region": .object([
+                            "type": .string("object"),
+                            "description": .string("Optional top-left-origin crop in normalized window-image coordinates. Cropping happens before OCR and PNG encoding."),
+                            "properties": .object([
+                                "x": Self.normalizedNumberSchema,
+                                "y": Self.normalizedNumberSchema,
+                                "width": Self.normalizedNumberSchema,
+                                "height": Self.normalizedNumberSchema
+                            ]),
+                            "required": .array([.string("x"), .string("y"), .string("width"), .string("height")]),
+                            "additionalProperties": .bool(false)
                         ])
                     ]),
-                    "required": .array([.string("window_id")]),
+                    "oneOf": .array([
+                        .object([
+                            "required": .array([.string("window_id")]),
+                            "not": .object([
+                                "anyOf": .array([
+                                    .object(["required": .array([.string("query")])]),
+                                    .object(["required": .array([.string("bundle_id")])])
+                                ])
+                            ])
+                        ]),
+                        .object([
+                            "anyOf": .array([
+                                .object(["required": .array([.string("query")])]),
+                                .object(["required": .array([.string("bundle_id")])])
+                            ]),
+                            "not": .object(["required": .array([.string("window_id")])])
+                        ])
+                    ]),
                     "additionalProperties": .bool(false)
                 ]),
                 outputSchema: Self.outputSchema(required: ["text", "window", "capture"])
@@ -123,7 +174,7 @@ struct MCPToolService: MCPToolHandling {
     }
 
     private func listWindows(arguments: [String: JSONValue]) async -> MCPToolCallResult {
-        let allowedArguments: Set<String> = ["query", "available_only"]
+        let allowedArguments: Set<String> = ["query", "available_only", "limit"]
         guard Set(arguments.keys).isSubset(of: allowedArguments) else {
             return .failure(code: "invalid_arguments", message: "Unsupported window-list argument.")
         }
@@ -149,35 +200,48 @@ struct MCPToolService: MCPToolHandling {
             }
             availableOnly = bool
         } else {
-            availableOnly = false
+            availableOnly = true
+        }
+
+        let limit: Int
+        if let value = arguments["limit"] {
+            guard let integer = Self.integerValue(value),
+                  (1...Self.maximumWindowLimit).contains(integer) else {
+                return .failure(
+                    code: "invalid_arguments",
+                    message: "limit must be an integer from 1 to \(Self.maximumWindowLimit)."
+                )
+            }
+            limit = integer
+        } else {
+            limit = Self.defaultWindowLimit
         }
 
         guard permissionChecker() else { return permissionFailure() }
         do {
             let catalog = try await windowService.windowCatalog(includeOffscreenWindows: true)
-            let filteredWindows = catalog.windows.filter { window in
+            let matchedWindows = catalog.windows.filter { window in
                 guard !availableOnly || window.isCapturable else { return false }
                 guard let query else { return true }
                 return window.applicationName.localizedCaseInsensitiveContains(query)
                     || window.bundleIdentifier?.localizedCaseInsensitiveContains(query) == true
                     || window.title.localizedCaseInsensitiveContains(query)
-            }.sorted {
-                if $0.applicationName != $1.applicationName {
-                    return $0.applicationName.localizedStandardCompare($1.applicationName) == .orderedAscending
+            }.sorted { lhs, rhs in
+                let applicationOrder = lhs.applicationName.localizedStandardCompare(rhs.applicationName)
+                if applicationOrder != .orderedSame {
+                    return applicationOrder == .orderedAscending
                 }
-                return $0.title.localizedStandardCompare($1.title) == .orderedAscending
+                let titleOrder = lhs.title.localizedStandardCompare(rhs.title)
+                if titleOrder != .orderedSame { return titleOrder == .orderedAscending }
+                return lhs.id < rhs.id
             }
-            let filteredProcessIDs = Set(filteredWindows.compactMap(\.processID))
-            let filteredApplications = catalog.applications.filter { application in
-                if let query {
-                    return application.applicationName.localizedCaseInsensitiveContains(query)
-                        || application.bundleIdentifier?.localizedCaseInsensitiveContains(query) == true
-                        || filteredProcessIDs.contains(application.processID)
-                }
-                return !availableOnly || filteredProcessIDs.contains(application.processID)
+            let returnedWindows = Array(matchedWindows.prefix(limit))
+            let returnedProcessIDs = Set(returnedWindows.compactMap(\.processID))
+            let returnedApplications = catalog.applications.filter {
+                returnedProcessIDs.contains($0.processID)
             }
-            let windowsByProcess = Dictionary(grouping: filteredWindows, by: \.processID)
-            let applications = filteredApplications.map { application -> JSONValue in
+            let windowsByProcess = Dictionary(grouping: returnedWindows, by: \.processID)
+            let applications = returnedApplications.map { application -> JSONValue in
                 let windowIDs = (windowsByProcess[application.processID] ?? []).map {
                     JSONValue.integer(Int64($0.id))
                 }
@@ -193,10 +257,10 @@ struct MCPToolService: MCPToolHandling {
                 }
                 return .object(object)
             }
-            let windows = filteredWindows.map { windowValue($0) }
-            let summary = filteredWindows.isEmpty
+            let windows = returnedWindows.map { windowValue($0) }
+            let summary = returnedWindows.isEmpty
                 ? "No matching windows."
-                : filteredWindows.map { window in
+                : returnedWindows.map { window in
                     let title = window.title.isEmpty ? "Untitled" : window.title
                     let availability = window.isCapturable ? "available" : "unavailable"
                     return "\(window.applicationName) — \(title) — window_id \(window.id) — \(availability)"
@@ -205,6 +269,9 @@ struct MCPToolService: MCPToolHandling {
                 structuredContent: .object([
                     "applications": .array(applications),
                     "windows": .array(windows),
+                    "returned_count": .integer(Int64(returnedWindows.count)),
+                    "matched_count": .integer(Int64(matchedWindows.count)),
+                    "truncated": .bool(returnedWindows.count < matchedWindows.count),
                     "window_ids_are_ephemeral": .bool(true)
                 ]),
                 textContent: summary
@@ -217,14 +284,55 @@ struct MCPToolService: MCPToolHandling {
     }
 
     private func captureWindow(arguments: [String: JSONValue]) async -> MCPToolCallResult {
-        let allowedArguments: Set<String> = ["window_id", "include_screenshot", "include_ocr_blocks"]
-        guard Set(arguments.keys).isSubset(of: allowedArguments),
-              let windowID = arguments["window_id"]?.uint32Value else {
+        let allowedArguments: Set<String> = [
+            "window_id", "query", "bundle_id", "include_screenshot", "include_ocr_blocks", "region"
+        ]
+        guard Set(arguments.keys).isSubset(of: allowedArguments) else {
             return .failure(
                 code: "invalid_arguments",
-                message: "window_id must be an unsigned 32-bit integer returned by opensnapx_list_windows."
+                message: "Unsupported window-capture argument."
             )
         }
+
+        let target: CaptureTarget
+        if let windowIDValue = arguments["window_id"] {
+            guard arguments["query"] == nil,
+                  arguments["bundle_id"] == nil,
+                  let windowID = windowIDValue.uint32Value else {
+                return .failure(
+                    code: "invalid_arguments",
+                    message: "Use window_id alone for targeting, or use query and/or bundle_id without window_id."
+                )
+            }
+            target = .windowID(windowID)
+        } else {
+            let query: String?
+            if let value = arguments["query"] {
+                guard let parsed = Self.nonEmptyString(value, named: "query") else {
+                    return .failure(code: "invalid_arguments", message: "query must contain 1 to 200 characters.")
+                }
+                query = parsed
+            } else {
+                query = nil
+            }
+            let bundleIdentifier: String?
+            if let value = arguments["bundle_id"] {
+                guard let parsed = Self.nonEmptyString(value, named: "bundle_id") else {
+                    return .failure(code: "invalid_arguments", message: "bundle_id must contain 1 to 200 characters.")
+                }
+                bundleIdentifier = parsed
+            } else {
+                bundleIdentifier = nil
+            }
+            guard query != nil || bundleIdentifier != nil else {
+                return .failure(
+                    code: "invalid_arguments",
+                    message: "Provide exactly one targeting mode: window_id, or query and/or bundle_id."
+                )
+            }
+            target = .search(query: query, bundleIdentifier: bundleIdentifier)
+        }
+
         let includeScreenshot: Bool
         if let value = arguments["include_screenshot"] {
             guard let bool = value.boolValue else {
@@ -243,29 +351,100 @@ struct MCPToolService: MCPToolHandling {
         } else {
             includeOCRBlocks = false
         }
+
+        let region: NormalizedRegion?
+        if let value = arguments["region"] {
+            guard let parsed = Self.normalizedRegion(value) else {
+                return .failure(
+                    code: "invalid_arguments",
+                    message: "region must contain finite x, y, width, and height values inside [0,1], with positive size and x + width / y + height no greater than 1."
+                )
+            }
+            region = parsed
+        } else {
+            region = nil
+        }
         guard permissionChecker() else { return permissionFailure() }
 
         return await captureLimiter.run { [self] in
             await performCaptureWindow(
-                id: windowID,
+                target: target,
                 includeScreenshot: includeScreenshot,
-                includeOCRBlocks: includeOCRBlocks
+                includeOCRBlocks: includeOCRBlocks,
+                region: region
             )
         }
     }
 
     private func performCaptureWindow(
-        id windowID: UInt32,
+        target: CaptureTarget,
         includeScreenshot: Bool,
-        includeOCRBlocks: Bool
+        includeOCRBlocks: Bool,
+        region: NormalizedRegion?
     ) async -> MCPToolCallResult {
         do {
+            let windowID: UInt32
+            switch target {
+            case let .windowID(id):
+                windowID = id
+            case let .search(query, bundleIdentifier):
+                let catalog: WindowCatalog
+                do {
+                    catalog = try await windowService.windowCatalog(includeOffscreenWindows: true)
+                } catch OpenSnapXError.permissionDenied {
+                    return permissionFailure()
+                } catch {
+                    return .failure(code: "window_discovery_failed", message: error.localizedDescription)
+                }
+                switch Self.resolveCaptureTarget(
+                    in: catalog.windows,
+                    query: query,
+                    bundleIdentifier: bundleIdentifier
+                ) {
+                case let .success(window):
+                    windowID = window.id
+                case let .failure(.ambiguous(candidates)):
+                    let returnedCandidates = Array(candidates.prefix(Self.maximumAmbiguousWindowCandidates))
+                    return .failure(
+                        code: "ambiguous_window",
+                        message: "Multiple capturable windows match the target equally well.",
+                        recovery: "Retry with a more specific query, call opensnapx_list_windows with a filter, or capture one of the returned candidate window IDs.",
+                        details: [
+                            "candidate_window_ids": .array(returnedCandidates.map { .integer(Int64($0.id)) }),
+                            "candidates": .array(returnedCandidates.map { windowValue($0) }),
+                            "returned_candidate_count": .integer(Int64(returnedCandidates.count)),
+                            "matched_candidate_count": .integer(Int64(candidates.count)),
+                            "candidates_truncated": .bool(returnedCandidates.count < candidates.count)
+                        ]
+                    )
+                case .failure(.unavailable):
+                    return .failure(
+                        code: "window_unavailable",
+                        message: "No capturable window matches the requested query and bundle identifier.",
+                        recovery: "Call opensnapx_list_windows to inspect available windows, then retry with a more specific target."
+                    )
+                }
+            }
+
             let capture = try await windowService.captureWindow(id: windowID)
-            let ocr = try await ocrService.recognize(ImagePayload(image: capture.result.image))
+            let preparedImage: PreparedCaptureImage
+            if let region {
+                guard let cropped = Self.crop(capture.result.image, to: region) else {
+                    return .failure(
+                        code: "invalid_arguments",
+                        message: "The requested region does not contain any image pixels."
+                    )
+                }
+                preparedImage = cropped
+            } else {
+                preparedImage = PreparedCaptureImage(image: capture.result.image, region: nil)
+            }
+
+            let ocr = try await ocrService.recognize(ImagePayload(image: preparedImage.image))
             let text = ocr.map(\.text).joined(separator: "\n")
             let screenshotData: Data?
             if includeScreenshot {
-                let image = capture.result.image
+                let image = preparedImage.image
                 let dpi = ImageCodec.dpi(forDisplayScale: capture.result.displayScale)
                 screenshotData = try await Task.detached(priority: .utility) {
                     try ImageCodec.data(from: image, format: .png, dpi: dpi)
@@ -273,7 +452,7 @@ struct MCPToolService: MCPToolHandling {
                 if let screenshotData, screenshotData.count > Self.maximumScreenshotBytes {
                     return .failure(
                         code: "screenshot_too_large",
-                        message: "The original-resolution PNG is too large to return safely.",
+                        message: "The original-pixel-density PNG is too large to return safely.",
                         recovery: "Retry with include_screenshot set to false to receive OCR and metadata only."
                     )
                 }
@@ -281,16 +460,20 @@ struct MCPToolService: MCPToolHandling {
                 screenshotData = nil
             }
 
-            let captureMetadata: [String: JSONValue] = [
+            var captureMetadata: [String: JSONValue] = [
                 "captured_at": .string(Self.timestamp(capture.result.createdAt)),
-                "pixel_width": .integer(Int64(capture.result.image.width)),
-                "pixel_height": .integer(Int64(capture.result.image.height)),
+                "pixel_width": .integer(Int64(preparedImage.image.width)),
+                "pixel_height": .integer(Int64(preparedImage.image.height)),
                 "display_scale": .number(capture.result.displayScale),
                 "ocr_block_count": .integer(Int64(ocr.count)),
                 "screenshot_included": .bool(screenshotData != nil),
                 "screenshot_mime_type": screenshotData == nil ? .null : .string("image/png"),
                 "persisted": .bool(false)
             ]
+            if let appliedRegion = preparedImage.region {
+                captureMetadata["region"] = rectValue(appliedRegion.rect)
+                captureMetadata["region_coordinate_origin"] = .string("top_left")
+            }
             var structuredContent: [String: JSONValue] = [
                 "text": .string(text),
                 "window": windowValue(capture.window),
@@ -329,6 +512,136 @@ struct MCPToolService: MCPToolHandling {
             message: "OpenSnapX does not have macOS Screen Recording permission.",
             recovery: "Open OpenSnapX Settings, grant Screen Recording access, and then retry. Accessibility permission is not required."
         )
+    }
+
+    private static func resolveCaptureTarget(
+        in windows: [WindowCandidate],
+        query: String?,
+        bundleIdentifier: String?
+    ) -> Result<WindowCandidate, CaptureTargetResolutionError> {
+        var candidates = windows.filter(\.isCapturable)
+        if let bundleIdentifier {
+            candidates = candidates.filter {
+                $0.bundleIdentifier?.caseInsensitiveCompare(bundleIdentifier) == .orderedSame
+            }
+        }
+        guard !candidates.isEmpty else { return .failure(.unavailable) }
+
+        guard let query else {
+            let sorted = candidates.sorted { $0.id < $1.id }
+            guard sorted.count == 1, let match = sorted.first else {
+                return .failure(.ambiguous(sorted))
+            }
+            return .success(match)
+        }
+
+        let scored = candidates.compactMap { window -> (window: WindowCandidate, score: Int)? in
+            let score: Int
+            if window.title.localizedCaseInsensitiveCompare(query) == .orderedSame {
+                score = 400
+            } else if window.title.localizedCaseInsensitiveContains(query) {
+                score = 300
+            } else if window.applicationName.localizedCaseInsensitiveCompare(query) == .orderedSame {
+                score = 200
+            } else if window.applicationName.localizedCaseInsensitiveContains(query) {
+                score = 100
+            } else {
+                return nil
+            }
+            return (window, score)
+        }
+        guard let bestScore = scored.map(\.score).max() else { return .failure(.unavailable) }
+        let bestMatches = scored
+            .filter { $0.score == bestScore }
+            .map(\.window)
+            .sorted { $0.id < $1.id }
+        guard bestMatches.count == 1, let match = bestMatches.first else {
+            return .failure(.ambiguous(bestMatches))
+        }
+        return .success(match)
+    }
+
+    private static func crop(_ image: CGImage, to region: NormalizedRegion) -> PreparedCaptureImage? {
+        let imageWidth = Double(image.width)
+        let imageHeight = Double(image.height)
+        let minimumX = floor(region.x * imageWidth)
+        let minimumY = floor(region.y * imageHeight)
+        let maximumX = ceil((region.x + region.width) * imageWidth)
+        let maximumY = ceil((region.y + region.height) * imageHeight)
+        let pixelRect = CGRect(
+            x: minimumX,
+            y: minimumY,
+            width: maximumX - minimumX,
+            height: maximumY - minimumY
+        )
+        guard pixelRect.width > 0,
+              pixelRect.height > 0,
+              pixelRect.minX >= 0,
+              pixelRect.minY >= 0,
+              pixelRect.maxX <= imageWidth,
+              pixelRect.maxY <= imageHeight,
+              let cropped = image.cropping(to: pixelRect) else { return nil }
+
+        let appliedRegion = NormalizedRegion(
+            x: Double(pixelRect.minX) / imageWidth,
+            y: Double(pixelRect.minY) / imageHeight,
+            width: Double(pixelRect.width) / imageWidth,
+            height: Double(pixelRect.height) / imageHeight
+        )
+        return PreparedCaptureImage(image: cropped, region: appliedRegion)
+    }
+
+    private static func normalizedRegion(_ value: JSONValue) -> NormalizedRegion? {
+        guard let object = value.objectValue,
+              Set(object.keys) == Set(["x", "y", "width", "height"]),
+              let rawX = object["x"].flatMap(numberValue),
+              let rawY = object["y"].flatMap(numberValue),
+              let rawWidth = object["width"].flatMap(numberValue),
+              let rawHeight = object["height"].flatMap(numberValue),
+              rawX.isFinite,
+              rawY.isFinite,
+              rawWidth.isFinite,
+              rawHeight.isFinite,
+              rawWidth > 0,
+              rawHeight > 0 else { return nil }
+
+        let epsilon = 1e-9
+        guard rawX >= -epsilon,
+              rawY >= -epsilon,
+              rawX + rawWidth <= 1 + epsilon,
+              rawY + rawHeight <= 1 + epsilon else { return nil }
+        let x = min(1, max(0, rawX))
+        let y = min(1, max(0, rawY))
+        let maximumX = min(1, max(0, rawX + rawWidth))
+        let maximumY = min(1, max(0, rawY + rawHeight))
+        guard maximumX > x, maximumY > y else { return nil }
+        return NormalizedRegion(x: x, y: y, width: maximumX - x, height: maximumY - y)
+    }
+
+    private static func nonEmptyString(_ value: JSONValue, named _: String) -> String? {
+        guard let string = value.stringValue else { return nil }
+        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed.count <= 200 else { return nil }
+        return trimmed
+    }
+
+    private static func integerValue(_ value: JSONValue) -> Int? {
+        switch value {
+        case let .integer(integer):
+            return Int(exactly: integer)
+        case let .number(number) where number.isFinite && number.rounded() == number:
+            return Int(exactly: number)
+        default:
+            return nil
+        }
+    }
+
+    private static func numberValue(_ value: JSONValue) -> Double? {
+        switch value {
+        case let .integer(integer): Double(integer)
+        case let .number(number): number
+        default: nil
+        }
     }
 
     private func windowValue(_ window: WindowCandidate) -> JSONValue {
@@ -372,9 +685,41 @@ struct MCPToolService: MCPToolHandling {
         ])
     }
 
+    private static var normalizedNumberSchema: JSONValue {
+        .object([
+            "type": .string("number"),
+            "minimum": .integer(0),
+            "maximum": .integer(1)
+        ])
+    }
+
     private static func timestamp(_ date: Date) -> String {
         ISO8601DateFormatter().string(from: date)
     }
+}
+
+private enum CaptureTarget: Sendable {
+    case windowID(UInt32)
+    case search(query: String?, bundleIdentifier: String?)
+}
+
+private enum CaptureTargetResolutionError: Error {
+    case ambiguous([WindowCandidate])
+    case unavailable
+}
+
+private struct NormalizedRegion: Sendable {
+    let x: Double
+    let y: Double
+    let width: Double
+    let height: Double
+
+    var rect: CGRect { CGRect(x: x, y: y, width: width, height: height) }
+}
+
+private struct PreparedCaptureImage: @unchecked Sendable {
+    let image: CGImage
+    let region: NormalizedRegion?
 }
 
 private actor MCPToolRequestLimiter {

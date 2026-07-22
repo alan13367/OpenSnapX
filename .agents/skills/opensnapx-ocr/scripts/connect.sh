@@ -4,17 +4,25 @@ set -eu
 BUNDLE_ID="io.github.alan13367.OpenSnapX"
 POINTER="$HOME/Library/Containers/$BUNDLE_ID/Data/Library/Application Support/OpenSnapX/MCP/socket-path"
 
-socket_is_ready() {
+read_socket_path() {
     [ -r "$POINTER" ] || return 1
     SOCKET_PATH="$(/bin/cat "$POINTER")"
-    [ -n "$SOCKET_PATH" ] && [ -S "$SOCKET_PATH" ]
+    [ -n "$SOCKET_PATH" ]
 }
 
-if ! socket_is_ready; then
-    /usr/bin/open -gj -b "$BUNDLE_ID" >/dev/null 2>&1 || true
+socket_file_is_ready() {
+    read_socket_path || return 1
+    [ -S "$SOCKET_PATH" ]
+}
+
+LAUNCH_FAILED=false
+if ! socket_file_is_ready; then
+    if ! /usr/bin/open -gj -b "$BUNDLE_ID" >/dev/null 2>&1; then
+        LAUNCH_FAILED=true
+    fi
     attempts=0
     while [ "$attempts" -lt 50 ]; do
-        if socket_is_ready; then
+        if socket_file_is_ready; then
             break
         fi
         attempts=$((attempts + 1))
@@ -22,8 +30,16 @@ if ! socket_is_ready; then
     done
 fi
 
-if ! socket_is_ready; then
-    echo "OpenSnapX Local MCP is unavailable. Open OpenSnapX Settings and enable Local MCP for AI agents." >&2
+if ! socket_file_is_ready; then
+    if [ "$LAUNCH_FAILED" = true ]; then
+        echo "OpenSnapX is not installed or could not be launched. Install or open OpenSnapX, then retry." >&2
+    elif /usr/bin/pgrep -x OpenSnapX >/dev/null 2>&1 && [ ! -e "$POINTER" ]; then
+        echo "OpenSnapX is running, but Local MCP is disabled. Enable it in OpenSnapX Settings → AI Agents." >&2
+    elif [ -e "$POINTER" ]; then
+        echo "OpenSnapX published a stale or unreachable Local MCP socket. Quit and reopen OpenSnapX with Local MCP enabled." >&2
+    else
+        echo "OpenSnapX Local MCP is unavailable. Open OpenSnapX Settings → AI Agents and enable Local MCP." >&2
+    fi
     exit 1
 fi
 
@@ -71,5 +87,12 @@ TRANSPORT_PID=""
 
 if [ -f "$INPUT_CLOSED" ]; then
     exit 0
+fi
+if [ "$transport_status" -ne 0 ]; then
+    if [ -e "$POINTER" ]; then
+        echo "OpenSnapX published a stale or unreachable Local MCP socket. Quit and reopen OpenSnapX with Local MCP enabled." >&2
+    else
+        echo "OpenSnapX Local MCP stopped or became unavailable. Enable it in OpenSnapX Settings → AI Agents, then retry." >&2
+    fi
 fi
 exit "$transport_status"
