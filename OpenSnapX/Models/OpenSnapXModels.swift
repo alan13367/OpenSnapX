@@ -52,6 +52,7 @@ struct CaptureRequest: Codable, Sendable {
     var includeCursor = false
     var displayID: UInt32?
     var selection: CanvasRect?
+    var screenSelection: CanvasRect?
     var windowID: UInt32?
 }
 

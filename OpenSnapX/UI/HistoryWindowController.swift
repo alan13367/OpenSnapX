@@ -133,7 +133,19 @@ final class HistoryWindowController: NSWindowController, NSCollectionViewDataSou
     @objc private func pinSelected() { if let id = selectedIDs().first { onPin?(id) } }
     @objc private func deleteSelected() {
         let ids = selectedIDs()
-        if !ids.isEmpty { onDelete?(ids) }
+        guard !ids.isEmpty, let window else { return }
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = ids.count == 1 ? "Delete Capture?" : "Delete \(ids.count) Captures?"
+        alert.informativeText = ids.count == 1
+            ? "This permanently removes the capture from history."
+            : "This permanently removes the selected captures from history."
+        alert.addButton(withTitle: "Delete").hasDestructiveAction = true
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            self?.onDelete?(ids)
+        }
     }
 }
 

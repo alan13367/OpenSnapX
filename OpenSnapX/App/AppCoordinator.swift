@@ -216,30 +216,21 @@ final class AppCoordinator: NSObject {
                     let candidates = mode == .window || mode == .region
                         ? try await captureService.availableWindows()
                         : []
-                    let freezesSelection = mode == .region || mode == .text
-                    let frozenDisplays = freezesSelection ? try await captureFrozenDisplays() : [:]
                     let selection = try await overlayController.select(
                         mode: mode,
-                        candidates: candidates,
-                        frozenDisplays: frozenDisplays
+                        candidates: candidates
                     )
                     let request = CaptureRequest(
                         mode: selection.mode == .window ? .window : mode,
                         includeCursor: settings.includeCursor,
                         displayID: selection.displayID,
                         selection: selection.pixelRect,
+                        screenSelection: selection.mode == .window || mode == .scrolling
+                            ? nil
+                            : selection.screenRect,
                         windowID: selection.windowID
                     )
-                    if freezesSelection,
-                       selection.mode != .window,
-                       !settings.includeCursor,
-                       let frozenImage = frozenDisplays[selection.displayID] {
-                        result = try frozenRegionResult(
-                            image: frozenImage,
-                            selection: selection,
-                            mode: mode
-                        )
-                    } else if mode == .scrolling {
+                    if mode == .scrolling {
                         let controller = ScrollingCaptureController(captureService: captureService, engine: scrollingEngine)
                         scrollingController = controller
                         do {
@@ -270,36 +261,6 @@ final class AppCoordinator: NSObject {
                 present(error)
             }
         }
-    }
-
-    private func captureFrozenDisplays() async throws -> [UInt32: CGImage] {
-        let displayIDs = NSScreen.screens.compactMap(DisplayGeometry.displayID(for:))
-        let captures = try await captureService.captureDisplays(displayIDs)
-        return captures.mapValues(\.image)
-    }
-
-    private func frozenRegionResult(
-        image: CGImage,
-        selection: OverlaySelection,
-        mode: CaptureMode
-    ) throws -> CaptureResult {
-        let imageBounds = CGRect(x: 0, y: 0, width: image.width, height: image.height)
-        let cropRect = selection.pixelRect.cgRect.standardized.integral
-        guard cropRect.width > 0,
-              cropRect.height > 0,
-              imageBounds.contains(cropRect),
-              let cropped = image.cropping(to: cropRect) else {
-            throw OpenSnapXError.captureFailed("The selected area is outside the frozen display.")
-        }
-        let scale = NSScreen.screens.first {
-            DisplayGeometry.displayID(for: $0) == selection.displayID
-        }?.backingScaleFactor ?? 1
-        return CaptureResult(
-            image: cropped,
-            mode: mode,
-            displayScale: scale,
-            sourceRect: CanvasRect(cropRect)
-        )
     }
 
     private func playCaptureSoundIfNeeded(for mode: CaptureMode) {

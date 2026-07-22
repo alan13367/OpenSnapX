@@ -34,6 +34,34 @@ struct WindowCapture: @unchecked Sendable {
     let window: WindowCandidate
 }
 
+enum WindowSelectionEngine {
+    static func orderedFrontToBack(
+        _ candidates: [WindowCandidate],
+        windowIDs: [UInt32]
+    ) -> [WindowCandidate] {
+        var ranks: [UInt32: Int] = [:]
+        for (index, windowID) in windowIDs.enumerated() where ranks[windowID] == nil {
+            ranks[windowID] = index
+        }
+        return candidates.enumerated().sorted { lhs, rhs in
+            let lhsRank = ranks[lhs.element.id] ?? Int.max
+            let rhsRank = ranks[rhs.element.id] ?? Int.max
+            return lhsRank == rhsRank ? lhs.offset < rhs.offset : lhsRank < rhsRank
+        }.map(\.element)
+    }
+
+    static func frontmostCandidate(
+        at screenPoint: CGPoint,
+        in candidates: [WindowCandidate]
+    ) -> WindowCandidate? {
+        candidates.first {
+            $0.isCapturable
+                && $0.bundleIdentifier != "com.apple.dock"
+                && $0.frame.contains(screenPoint)
+        }
+    }
+}
+
 protocol WindowCaptureService: Sendable {
     func windowCatalog(includeOffscreenWindows: Bool) async throws -> WindowCatalog
     func captureWindow(id: UInt32) async throws -> WindowCapture
@@ -41,23 +69,7 @@ protocol WindowCaptureService: Sendable {
 
 protocol CaptureService: Sendable {
     func capture(_ request: CaptureRequest) async throws -> CaptureResult
-    func captureDisplays(_ displayIDs: [UInt32]) async throws -> [UInt32: CaptureResult]
     func availableWindows() async throws -> [WindowCandidate]
-}
-
-extension CaptureService {
-    func captureDisplays(_ displayIDs: [UInt32]) async throws -> [UInt32: CaptureResult] {
-        var captures: [UInt32: CaptureResult] = [:]
-        captures.reserveCapacity(displayIDs.count)
-        for displayID in displayIDs {
-            captures[displayID] = try await capture(CaptureRequest(
-                mode: .display,
-                includeCursor: false,
-                displayID: displayID
-            ))
-        }
-        return captures
-    }
 }
 
 final class ScreenCaptureService: CaptureService, WindowCaptureService, @unchecked Sendable {
@@ -77,6 +89,17 @@ final class ScreenCaptureService: CaptureService, WindowCaptureService, @uncheck
             window.owningApplication?.bundleIdentifier == ownBundleID ? window.windowID : nil
         })
         let excludedWindows = content.windows.filter { ownWindowIDs.contains($0.windowID) }
+
+        if (request.mode == .region || request.mode == .text),
+           let screenSelection = request.screenSelection?.cgRect {
+            return try await captureDesktopRegion(
+                screenSelection,
+                mode: request.mode,
+                includeCursor: request.includeCursor,
+                content: content,
+                excludedWindows: excludedWindows
+            )
+        }
 
         switch request.mode {
         case .window:
@@ -129,54 +152,119 @@ final class ScreenCaptureService: CaptureService, WindowCaptureService, @uncheck
         }
     }
 
-    func captureDisplays(_ displayIDs: [UInt32]) async throws -> [UInt32: CaptureResult] {
-        guard CGPreflightScreenCaptureAccess() else { throw OpenSnapXError.permissionDenied }
-        guard !displayIDs.isEmpty else { return [:] }
+    func availableWindows() async throws -> [WindowCandidate] {
+        try await discoverWindows(includeOffscreenWindows: false)
+    }
 
-        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-        let ownBundleID = Bundle.main.bundleIdentifier
-        let excludedWindows = content.windows.filter {
-            $0.owningApplication?.bundleIdentifier == ownBundleID
+    private func captureDesktopRegion(
+        _ screenRect: CGRect,
+        mode: CaptureMode,
+        includeCursor: Bool,
+        content: SCShareableContent,
+        excludedWindows: [SCWindow]
+    ) async throws -> CaptureResult {
+        let screenDescriptors = await MainActor.run {
+            NSScreen.screens.compactMap { screen -> DisplayGeometry.ScreenDescriptor? in
+                guard let displayID = DisplayGeometry.displayID(for: screen) else { return nil }
+                return DisplayGeometry.ScreenDescriptor(
+                    displayID: displayID,
+                    frame: screen.frame,
+                    scale: screen.backingScaleFactor
+                )
+            }
         }
-        var captures: [UInt32: CaptureResult] = [:]
-        captures.reserveCapacity(displayIDs.count)
 
-        for displayID in displayIDs {
-            guard let display = content.displays.first(where: { $0.displayID == displayID }) else {
-                throw OpenSnapXError.displayNotFound
+        var filters: [UInt32: SCContentFilter] = [:]
+        var captureSizes: [UInt32: CGSize] = [:]
+        var effectiveDescriptors: [DisplayGeometry.ScreenDescriptor] = []
+        for descriptor in screenDescriptors where descriptor.frame.intersects(screenRect) {
+            guard let display = content.displays.first(where: { $0.displayID == descriptor.displayID }) else {
+                continue
             }
             let filter = SCContentFilter(display: display, excludingWindows: excludedWindows)
-            let fallbackScale = NSScreen.screens.first {
-                DisplayGeometry.displayID(for: $0) == display.displayID
-            }?.backingScaleFactor ?? 1
-            let displayScale = filter.pointPixelScale > 0
-                ? max(1, Double(filter.pointPixelScale))
-                : max(1, Double(fallbackScale))
-            let captureSize = capturePixelSize(
+            let scale = filter.pointPixelScale > 0
+                ? max(1, CGFloat(filter.pointPixelScale))
+                : max(1, descriptor.scale)
+            filters[descriptor.displayID] = filter
+            captureSizes[descriptor.displayID] = capturePixelSize(
                 for: filter,
                 fallbackPointSize: CGSize(width: display.width, height: display.height),
-                fallbackScale: fallbackScale
+                fallbackScale: descriptor.scale
             )
+            effectiveDescriptors.append(DisplayGeometry.ScreenDescriptor(
+                displayID: descriptor.displayID,
+                frame: descriptor.frame,
+                scale: scale
+            ))
+        }
+
+        guard let layout = DisplayGeometry.regionLayout(
+            for: screenRect,
+            screens: effectiveDescriptors
+        ) else {
+            throw OpenSnapXError.captureFailed("The selected area does not intersect a display.")
+        }
+
+        var displayImages: [UInt32: CGImage] = [:]
+        for slice in layout.slices {
+            guard let filter = filters[slice.displayID],
+                  let captureSize = captureSizes[slice.displayID] else { continue }
             let configuration = makeConfiguration(
                 width: max(1, Int(captureSize.width)),
                 height: max(1, Int(captureSize.height)),
-                includeCursor: false
+                includeCursor: includeCursor
             )
-            let image = try await SCScreenshotManager.captureImage(
+            displayImages[slice.displayID] = try await SCScreenshotManager.captureImage(
                 contentFilter: filter,
                 configuration: configuration
             )
-            captures[displayID] = CaptureResult(
-                image: image,
-                mode: .display,
-                displayScale: displayScale
-            )
         }
-        return captures
-    }
 
-    func availableWindows() async throws -> [WindowCandidate] {
-        try await discoverWindows(includeOffscreenWindows: false)
+        let width = max(1, Int(layout.pixelSize.width))
+        let height = max(1, Int(layout.pixelSize.height))
+        let colorSpace = displayImages.values.first?.colorSpace
+            ?? CGColorSpace(name: CGColorSpace.displayP3)
+            ?? CGColorSpaceCreateDeviceRGB()
+        guard let context = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            throw OpenSnapXError.captureFailed("Could not create the multi-display capture canvas.")
+        }
+
+        context.setFillColor(CGColor(gray: 0, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        context.interpolationQuality = .high
+        var drewSlice = false
+        for slice in layout.slices {
+            guard let displayImage = displayImages[slice.displayID] else { continue }
+            let imageBounds = CGRect(
+                x: 0,
+                y: 0,
+                width: displayImage.width,
+                height: displayImage.height
+            )
+            let cropRect = slice.sourcePixelRect.standardized.integral.intersection(imageBounds)
+            guard cropRect.width > 0,
+                  cropRect.height > 0,
+                  let cropped = displayImage.cropping(to: cropRect) else { continue }
+            context.draw(cropped, in: slice.destinationPixelRect)
+            drewSlice = true
+        }
+        guard drewSlice, let image = context.makeImage() else {
+            throw OpenSnapXError.captureFailed("Could not finish the multi-display capture.")
+        }
+        return CaptureResult(
+            image: image,
+            mode: mode,
+            displayScale: Double(layout.scale),
+            sourceRect: CanvasRect(CGRect(origin: .zero, size: layout.pixelSize))
+        )
     }
 
     func windowCatalog(includeOffscreenWindows: Bool) async throws -> WindowCatalog {
@@ -197,13 +285,17 @@ final class ScreenCaptureService: CaptureService, WindowCaptureService, @uncheck
             onScreenWindowsOnly: !includeOffscreenWindows
         )
         let ownBundleID = Bundle.main.bundleIdentifier
-        let desktopTop = await MainActor.run { NSScreen.screens.map(\.frame.maxY).max() ?? 0 }
-        return content.windows.compactMap { window -> WindowCandidate? in
+        let primaryDisplayTop = await MainActor.run { NSScreen.screens.first?.frame.maxY ?? 0 }
+        let candidates = content.windows.compactMap { window -> WindowCandidate? in
             guard window.frame.width >= 40,
                   window.frame.height >= 40,
                   window.owningApplication?.bundleIdentifier != ownBundleID else { return nil }
-            return Self.candidate(from: window, desktopTop: desktopTop)
+            return Self.candidate(from: window, primaryDisplayTop: primaryDisplayTop)
         }
+        return WindowSelectionEngine.orderedFrontToBack(
+            candidates,
+            windowIDs: Self.frontToBackWindowIDs()
+        )
     }
 
     func captureWindow(id: UInt32) async throws -> WindowCapture {
@@ -243,10 +335,10 @@ final class ScreenCaptureService: CaptureService, WindowCaptureService, @uncheck
             contentFilter: filter,
             configuration: configuration
         )
-        let desktopTop = await MainActor.run { NSScreen.screens.map(\.frame.maxY).max() ?? 0 }
+        let primaryDisplayTop = await MainActor.run { NSScreen.screens.first?.frame.maxY ?? 0 }
         return WindowCapture(
             result: CaptureResult(image: image, mode: .window, displayScale: windowScale),
-            window: Self.candidate(from: window, desktopTop: desktopTop)
+            window: Self.candidate(from: window, primaryDisplayTop: primaryDisplayTop)
         )
     }
 
@@ -267,7 +359,7 @@ final class ScreenCaptureService: CaptureService, WindowCaptureService, @uncheck
         }
     }
 
-    private static func candidate(from window: SCWindow, desktopTop: CGFloat) -> WindowCandidate {
+    private static func candidate(from window: SCWindow, primaryDisplayTop: CGFloat) -> WindowCandidate {
         let app = window.owningApplication
         return WindowCandidate(
             id: window.windowID,
@@ -275,15 +367,25 @@ final class ScreenCaptureService: CaptureService, WindowCaptureService, @uncheck
             applicationName: app?.applicationName ?? "Application",
             bundleIdentifier: app?.bundleIdentifier,
             processID: app?.processID,
-            frame: CGRect(
-                x: window.frame.minX,
-                y: desktopTop - window.frame.maxY,
-                width: window.frame.width,
-                height: window.frame.height
+            frame: DisplayGeometry.appKitRect(
+                fromQuartzRect: window.frame,
+                primaryDisplayTop: primaryDisplayTop
             ),
             isOnScreen: window.isOnScreen,
             windowLayer: window.windowLayer
         )
+    }
+
+    private static func frontToBackWindowIDs() -> [UInt32] {
+        guard let windowInfo = CGWindowListCopyWindowInfo(
+            [.optionOnScreenOnly, .excludeDesktopElements],
+            kCGNullWindowID
+        ) as? [[String: Any]] else { return [] }
+        return windowInfo.compactMap { info in
+            let alpha = (info[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1
+            guard alpha > 0.01 else { return nil }
+            return (info[kCGWindowNumber as String] as? NSNumber)?.uint32Value
+        }
     }
 
     private func resolveDisplay(_ requestedID: UInt32?, in displays: [SCDisplay]) -> SCDisplay? {
@@ -299,12 +401,9 @@ final class ScreenCaptureService: CaptureService, WindowCaptureService, @uncheck
     }
 
     private func appKitFrame(for screenCaptureFrame: CGRect) -> CGRect {
-        let desktopTop = NSScreen.screens.map(\.frame.maxY).max() ?? 0
-        return CGRect(
-            x: screenCaptureFrame.minX,
-            y: desktopTop - screenCaptureFrame.maxY,
-            width: screenCaptureFrame.width,
-            height: screenCaptureFrame.height
+        DisplayGeometry.appKitRect(
+            fromQuartzRect: screenCaptureFrame,
+            primaryDisplayTop: NSScreen.screens.first?.frame.maxY ?? 0
         )
     }
 

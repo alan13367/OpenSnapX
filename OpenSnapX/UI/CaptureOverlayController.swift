@@ -9,30 +9,58 @@ struct OverlaySelection: Sendable {
     let windowID: UInt32?
 }
 
+enum CaptureOverlayGeometry {
+    static func panelContentRect(for screenFrame: CGRect) -> CGRect {
+        CGRect(origin: .zero, size: screenFrame.size)
+    }
+
+    static func visibleSelection(_ selection: CGRect, within bounds: CGRect) -> CGRect? {
+        let visible = selection.intersection(bounds)
+        guard !visible.isNull,
+              !visible.isEmpty,
+              visible.minX.isFinite,
+              visible.minY.isFinite,
+              visible.width.isFinite,
+              visible.height.isFinite else { return nil }
+        return visible
+    }
+
+    static func isValidHintPoint(_ point: CGPoint) -> Bool {
+        point.x.isFinite && point.y.isFinite
+    }
+}
+
 @MainActor
 final class CaptureOverlayController {
     private var windows: [NSPanel] = []
+    private var views: [CaptureOverlayView] = []
+    private var candidates: [WindowCandidate] = []
+    private var activeMode: CaptureMode = .region
     private var continuation: CheckedContinuation<OverlaySelection, Error>?
     private var completed = false
 
     func select(
         mode: CaptureMode,
-        candidates: [WindowCandidate] = [],
-        frozenDisplays: [UInt32: CGImage] = [:]
+        candidates: [WindowCandidate] = []
     ) async throws -> OverlaySelection {
         cancelExisting()
         completed = false
+        activeMode = mode
+        self.candidates = candidates
         return try await withCheckedThrowingContinuation { continuation in
             self.continuation = continuation
-            for screen in NSScreen.screens {
+            let screens = NSScreen.screens
+            let desktopFrame = screens.reduce(CGRect.null) { $0.union($1.frame) }
+            for screen in screens {
                 guard let displayID = DisplayGeometry.displayID(for: screen) else { continue }
                 let panel = OverlayPanel(
-                    contentRect: screen.frame,
+                    contentRect: CaptureOverlayGeometry.panelContentRect(for: screen.frame),
                     styleMask: [.borderless],
                     backing: .buffered,
                     defer: false,
                     screen: screen
                 )
+                panel.setFrame(screen.frame, display: false)
                 panel.level = .screenSaver
                 panel.backgroundColor = .clear
                 panel.isOpaque = false
@@ -45,16 +73,28 @@ final class CaptureOverlayController {
                     displayID: displayID,
                     mode: mode,
                     candidates: candidates,
-                    frozenImage: frozenDisplays[displayID]
+                    desktopFrame: desktopFrame
                 )
                 view.onComplete = { [weak self] result in self?.finish(result) }
                 view.onCancel = { [weak self] in self?.cancel() }
+                view.onWindowHover = { [weak self] candidate in self?.updateHoveredWindow(candidate) }
+                view.onModeToggle = { [weak self] in self?.toggleSelectionMode() }
+                view.onSelectionChanged = { [weak self] selection in
+                    self?.updateRegionSelection(selection)
+                }
                 panel.contentView = view
+                views.append(view)
                 windows.append(panel)
                 panel.orderFrontRegardless()
             }
             NSApp.activate(ignoringOtherApps: true)
             windows.first(where: { $0.frame.contains(NSEvent.mouseLocation) })?.makeKey()
+            if activeMode == .window {
+                updateHoveredWindow(WindowSelectionEngine.frontmostCandidate(
+                    at: NSEvent.mouseLocation,
+                    in: candidates
+                ))
+            }
         }
     }
 
@@ -79,9 +119,29 @@ final class CaptureOverlayController {
         closeWindows()
     }
 
+    private func updateHoveredWindow(_ candidate: WindowCandidate?) {
+        guard activeMode == .window else { return }
+        views.forEach { $0.showHoveredWindow(candidate) }
+    }
+
+    private func updateRegionSelection(_ selection: CGRect) {
+        guard activeMode != .window else { return }
+        views.forEach { $0.showRegionSelection(selection) }
+    }
+
+    private func toggleSelectionMode() {
+        activeMode = activeMode == .window ? .region : .window
+        let hoveredWindow = activeMode == .window
+            ? WindowSelectionEngine.frontmostCandidate(at: NSEvent.mouseLocation, in: candidates)
+            : nil
+        views.forEach { $0.setMode(activeMode, hoveredWindow: hoveredWindow) }
+    }
+
     private func closeWindows() {
         windows.forEach { $0.orderOut(nil); $0.close() }
         windows.removeAll()
+        views.removeAll()
+        candidates.removeAll()
     }
 }
 
@@ -93,13 +153,16 @@ private final class OverlayPanel: NSPanel {
 private final class CaptureOverlayView: NSView {
     var onComplete: ((OverlaySelection) -> Void)?
     var onCancel: (() -> Void)?
+    var onWindowHover: ((WindowCandidate?) -> Void)?
+    var onModeToggle: (() -> Void)?
+    var onSelectionChanged: ((CGRect) -> Void)?
 
     private let captureScreen: NSScreen
     private let displayID: UInt32
     private let candidates: [WindowCandidate]
-    private let frozenImage: CGImage?
+    private let desktopFrame: CGRect
     private var mode: CaptureMode
-    private var selection: CGRect = .zero
+    private var screenSelection: CGRect = .zero
     private var dragAnchor: CGPoint?
     private var originalSelection: CGRect = .zero
     private var isMoving = false
@@ -115,13 +178,13 @@ private final class CaptureOverlayView: NSView {
         displayID: UInt32,
         mode: CaptureMode,
         candidates: [WindowCandidate],
-        frozenImage: CGImage?
+        desktopFrame: CGRect
     ) {
         captureScreen = screen
         self.displayID = displayID
         self.mode = mode
         self.candidates = candidates
-        self.frozenImage = frozenImage
+        self.desktopFrame = desktopFrame
         super.init(frame: CGRect(origin: .zero, size: screen.frame.size))
         wantsLayer = true
     }
@@ -153,54 +216,60 @@ private final class CaptureOverlayView: NSView {
 
     override func mouseMoved(with event: NSEvent) {
         guard mode == .window else { return }
-        hoveredWindow = candidate(at: event.locationInWindow)
-        selection = hoveredWindow.map(localFrame(for:)) ?? .zero
-        needsDisplay = true
+        let hoveredWindow = candidate(at: event.locationInWindow)
+        showHoveredWindow(hoveredWindow)
+        onWindowHover?(hoveredWindow)
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        mouseMoved(with: event)
     }
 
     override func mouseDown(with event: NSEvent) {
-        let point = convert(event.locationInWindow, from: nil)
+        let point = screenPoint(for: event)
         if mode == .window {
-            if let selectedWindow = hoveredWindow ?? candidate(at: event.locationInWindow) {
+            if let selectedWindow = candidate(at: event.locationInWindow) {
+                showHoveredWindow(selectedWindow)
+                onWindowHover?(selectedWindow)
                 complete(windowCandidate: selectedWindow)
             }
             return
         }
         dragAnchor = point
         didMove = false
-        if selection.insetBy(dx: -5, dy: -5).contains(point), !selection.isEmpty {
+        if screenSelection.insetBy(dx: -5, dy: -5).contains(point), !screenSelection.isEmpty {
             isMoving = true
-            originalSelection = selection
+            originalSelection = screenSelection
         } else {
             isMoving = false
-            selection = CGRect(origin: point, size: .zero)
+            screenSelection = CGRect(origin: point, size: .zero)
         }
-        needsDisplay = true
+        publishSelection()
     }
 
     override func mouseDragged(with event: NSEvent) {
         guard let dragAnchor else { return }
-        let point = clamped(convert(event.locationInWindow, from: nil))
+        let point = selectionPoint(for: event)
         didMove = hypot(point.x - dragAnchor.x, point.y - dragAnchor.y) > 2
         if isMoving {
             let delta = CGPoint(x: point.x - dragAnchor.x, y: point.y - dragAnchor.y)
-            selection = originalSelection.offsetBy(dx: delta.x, dy: delta.y)
-            selection.origin.x = min(max(0, selection.origin.x), bounds.width - selection.width)
-            selection.origin.y = min(max(0, selection.origin.y), bounds.height - selection.height)
+            screenSelection = constrainedToDesktop(
+                originalSelection.offsetBy(dx: delta.x, dy: delta.y)
+            )
         } else {
-            selection = CGRect(
+            screenSelection = CGRect(
                 x: min(dragAnchor.x, point.x),
                 y: min(dragAnchor.y, point.y),
                 width: abs(point.x - dragAnchor.x),
                 height: abs(point.y - dragAnchor.y)
             )
         }
-        needsDisplay = true
+        publishSelection()
     }
 
     override func mouseUp(with event: NSEvent) {
         defer { dragAnchor = nil }
-        let isValidSelection = selection.width >= 2 && selection.height >= 2
+        let isValidSelection = screenSelection.width >= 2 && screenSelection.height >= 2
         let shouldCaptureNewSelection = !isMoving && isValidSelection
         let shouldCaptureExistingSelection = isMoving && !didMove && isValidSelection
         isMoving = false
@@ -208,7 +277,7 @@ private final class CaptureOverlayView: NSView {
             completeSelection()
             return
         }
-        needsDisplay = true
+        publishSelection()
     }
 
     override func keyDown(with event: NSEvent) {
@@ -216,12 +285,13 @@ private final class CaptureOverlayView: NSView {
         case 53:
             onCancel?()
         case 36, 76:
-            completeSelection()
+            if mode == .window, let hoveredWindow {
+                complete(windowCandidate: hoveredWindow)
+            } else {
+                completeSelection()
+            }
         case 49:
-            mode = mode == .window ? .region : .window
-            selection = .zero
-            window?.invalidateCursorRects(for: self)
-            needsDisplay = true
+            onModeToggle?()
         case 123, 124, 125, 126:
             nudgeSelection(keyCode: event.keyCode, amount: event.modifierFlags.contains(.shift) ? 10 : 1)
         default:
@@ -231,38 +301,70 @@ private final class CaptureOverlayView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        if let frozenImage, let context = NSGraphicsContext.current?.cgContext {
-            context.saveGState()
-            context.interpolationQuality = .none
-            context.translateBy(x: 0, y: bounds.height)
-            context.scaleBy(x: 1, y: -1)
-            context.draw(frozenImage, in: bounds)
-            context.restoreGState()
+        if mode == .window {
+            drawWindowSelection()
+            return
         }
+
+        let selection = localFrame(for: screenSelection)
         NSColor.black.withAlphaComponent(0.36).setFill()
         let dim = NSBezierPath(rect: bounds)
-        if !selection.isEmpty {
+        if !screenSelection.isEmpty {
             dim.appendRect(selection)
             dim.windingRule = .evenOdd
         }
         dim.fill()
 
-        guard !selection.isEmpty else {
-            drawHint("Drag and release to capture • Space selects a window • Esc cancels", at: CGPoint(x: bounds.midX, y: bounds.maxY - 44))
+        guard !screenSelection.isEmpty else {
+            if containsMouse {
+                drawHint("Drag across any display • Space selects a window • Esc cancels", at: CGPoint(x: bounds.midX, y: bounds.maxY - 44))
+            }
             return
         }
         NSColor.controlAccentColor.setStroke()
         let outline = NSBezierPath(rect: selection.insetBy(dx: -0.5, dy: -0.5))
         outline.lineWidth = 2
         outline.stroke()
-        drawHandles()
-        let scale = captureScreen.backingScaleFactor
-        let dimensions = "\(Int((selection.width * scale).rounded())) × \(Int((selection.height * scale).rounded()))"
-        drawHint(dimensions, at: CGPoint(x: selection.midX, y: max(24, selection.minY - 24)))
-        drawHint(dragAnchor != nil ? "Release to capture • Esc cancels" : "Arrow keys adjust • ↩ captures • Esc cancels", at: CGPoint(x: selection.midX, y: min(bounds.maxY - 24, selection.maxY + 30)))
+        drawHandles(for: selection)
+        if containsMouse,
+           let visibleSelection = CaptureOverlayGeometry.visibleSelection(
+               selection,
+               within: bounds
+           ) {
+            let scale = NSScreen.screens
+                .filter { $0.frame.intersects(screenSelection) }
+                .map(\.backingScaleFactor)
+                .max() ?? captureScreen.backingScaleFactor
+            let dimensions = "\(Int((screenSelection.width * scale).rounded())) × \(Int((screenSelection.height * scale).rounded()))"
+            let hintX = min(max(visibleSelection.midX, 80), bounds.maxX - 80)
+            drawHint(dimensions, at: CGPoint(x: hintX, y: max(24, visibleSelection.minY - 24)))
+            drawHint(dragAnchor != nil ? "Release to capture • Esc cancels" : "Arrow keys adjust • ↩ captures • Esc cancels", at: CGPoint(x: hintX, y: min(bounds.maxY - 24, visibleSelection.maxY + 30)))
+        }
     }
 
-    private func drawHandles() {
+    private func drawWindowSelection() {
+        NSColor.black.withAlphaComponent(0.16).setFill()
+        NSBezierPath(rect: bounds).fill()
+
+        let selection = localFrame(for: screenSelection)
+        if !screenSelection.isEmpty, selection.intersects(bounds) {
+            let highlight = NSBezierPath(roundedRect: selection, xRadius: 10, yRadius: 10)
+            NSColor.systemBlue.withAlphaComponent(0.42).setFill()
+            highlight.fill()
+            NSColor.systemBlue.withAlphaComponent(0.95).setStroke()
+            highlight.lineWidth = 2
+            highlight.stroke()
+        }
+
+        drawHint(
+            screenSelection.isEmpty
+                ? "Move over a window • Space selects an area • Esc cancels"
+                : "Click to capture • Space selects an area • Esc cancels",
+            at: CGPoint(x: bounds.midX, y: bounds.maxY - 44)
+        )
+    }
+
+    private func drawHandles(for selection: CGRect) {
         NSColor.white.setFill()
         let points = [
             CGPoint(x: selection.minX, y: selection.minY), CGPoint(x: selection.midX, y: selection.minY), CGPoint(x: selection.maxX, y: selection.minY),
@@ -304,70 +406,130 @@ private final class CaptureOverlayView: NSView {
     }()
 
     private func drawHint(_ text: String, at point: CGPoint) {
+        guard CaptureOverlayGeometry.isValidHintPoint(point) else { return }
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 12, weight: .medium),
             .foregroundColor: NSColor.labelColor
         ]
         let size = text.size(withAttributes: attributes)
         let frame = CGRect(x: point.x - size.width / 2 - 10, y: point.y - size.height / 2 - 5, width: size.width + 20, height: size.height + 10)
+        guard frame.minX.isFinite,
+              frame.minY.isFinite,
+              frame.width.isFinite,
+              frame.height.isFinite else { return }
         NSColor.windowBackgroundColor.withAlphaComponent(0.94).setFill()
         NSBezierPath(roundedRect: frame, xRadius: 8, yRadius: 8).fill()
         text.draw(at: CGPoint(x: frame.minX + 10, y: frame.minY + 5), withAttributes: attributes)
     }
 
     private func nudgeSelection(keyCode: UInt16, amount: CGFloat) {
-        guard !selection.isEmpty else { return }
+        guard !screenSelection.isEmpty else { return }
         switch keyCode {
-        case 123: selection.origin.x -= amount
-        case 124: selection.origin.x += amount
-        case 125: selection.origin.y += amount
-        case 126: selection.origin.y -= amount
+        case 123: screenSelection.origin.x -= amount
+        case 124: screenSelection.origin.x += amount
+        case 125: screenSelection.origin.y -= amount
+        case 126: screenSelection.origin.y += amount
         default: break
         }
-        selection.origin.x = min(max(0, selection.origin.x), bounds.width - selection.width)
-        selection.origin.y = min(max(0, selection.origin.y), bounds.height - selection.height)
-        needsDisplay = true
+        screenSelection = constrainedToDesktop(screenSelection)
+        publishSelection()
     }
 
     private func completeSelection() {
-        guard selection.width >= 2, selection.height >= 2, let window else { return }
-        let windowRect = convert(selection, to: nil)
-        let screenRect = window.convertToScreen(windowRect)
-        let pixelRect = DisplayGeometry.pixelRect(from: screenRect, on: captureScreen)
+        guard screenSelection.width >= 2, screenSelection.height >= 2 else { return }
+        let pixelRect = DisplayGeometry.pixelRect(from: screenSelection, on: captureScreen)
         onComplete?(OverlaySelection(
             mode: mode,
             displayID: displayID,
-            screenRect: CanvasRect(screenRect),
+            screenRect: CanvasRect(screenSelection),
             pixelRect: CanvasRect(pixelRect),
             windowID: nil
         ))
     }
 
     private func complete(windowCandidate: WindowCandidate) {
-        guard let screen = DisplayGeometry.screen(containing: CGPoint(x: windowCandidate.frame.midX, y: windowCandidate.frame.midY)) else { return }
-        let pixelRect = DisplayGeometry.pixelRect(from: windowCandidate.frame, on: screen)
+        let pixelRect = DisplayGeometry.pixelRect(from: windowCandidate.frame, on: captureScreen)
         onComplete?(OverlaySelection(
             mode: .window,
-            displayID: DisplayGeometry.displayID(for: screen) ?? displayID,
+            displayID: displayID,
             screenRect: CanvasRect(windowCandidate.frame),
             pixelRect: CanvasRect(pixelRect),
             windowID: windowCandidate.id
         ))
     }
 
+    func showHoveredWindow(_ candidate: WindowCandidate?) {
+        guard mode == .window else { return }
+        hoveredWindow = candidate
+        screenSelection = candidate?.frame ?? .zero
+        needsDisplay = true
+    }
+
+    func showRegionSelection(_ selection: CGRect) {
+        guard mode != .window else { return }
+        screenSelection = selection
+        needsDisplay = true
+    }
+
+    func setMode(_ mode: CaptureMode, hoveredWindow: WindowCandidate?) {
+        self.mode = mode
+        screenSelection = .zero
+        dragAnchor = nil
+        isMoving = false
+        self.hoveredWindow = nil
+        if mode == .window {
+            showHoveredWindow(hoveredWindow)
+        }
+        window?.invalidateCursorRects(for: self)
+        needsDisplay = true
+    }
+
     private func candidate(at windowPoint: CGPoint) -> WindowCandidate? {
         guard let window else { return nil }
         let screenPoint = window.convertPoint(toScreen: windowPoint)
-        return candidates.first { $0.frame.contains(screenPoint) }
+        return WindowSelectionEngine.frontmostCandidate(at: screenPoint, in: candidates)
     }
 
-    private func localFrame(for candidate: WindowCandidate) -> CGRect {
+    private func localFrame(for screenRect: CGRect) -> CGRect {
         guard let window else { return .zero }
-        let windowRect = window.convertFromScreen(candidate.frame)
+        let windowRect = window.convertFromScreen(screenRect)
         return convert(windowRect, from: nil)
     }
 
-    private func clamped(_ point: CGPoint) -> CGPoint {
+    private func clampedLocalPoint(_ point: CGPoint) -> CGPoint {
         CGPoint(x: min(max(0, point.x), bounds.maxX), y: min(max(0, point.y), bounds.maxY))
+    }
+
+    private func screenPoint(for event: NSEvent) -> CGPoint {
+        window?.convertPoint(toScreen: event.locationInWindow) ?? NSEvent.mouseLocation
+    }
+
+    private func selectionPoint(for event: NSEvent) -> CGPoint {
+        guard mode != .region, mode != .text, let window else {
+            return screenPoint(for: event)
+        }
+        let localPoint = clampedLocalPoint(convert(event.locationInWindow, from: nil))
+        let windowPoint = convert(localPoint, to: nil)
+        return window.convertPoint(toScreen: windowPoint)
+    }
+
+    private func constrainedToDesktop(_ rect: CGRect) -> CGRect {
+        var result = rect
+        if result.width <= desktopFrame.width {
+            result.origin.x = min(max(result.origin.x, desktopFrame.minX), desktopFrame.maxX - result.width)
+        }
+        if result.height <= desktopFrame.height {
+            result.origin.y = min(max(result.origin.y, desktopFrame.minY), desktopFrame.maxY - result.height)
+        }
+        return result
+    }
+
+    private func publishSelection() {
+        needsDisplay = true
+        onSelectionChanged?(screenSelection)
+    }
+
+    private var containsMouse: Bool {
+        captureScreen.frame.contains(NSEvent.mouseLocation)
     }
 }

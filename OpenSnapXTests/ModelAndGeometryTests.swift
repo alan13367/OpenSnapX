@@ -31,6 +31,162 @@ final class ModelAndGeometryTests: XCTestCase {
         XCTAssertEqual(pixels, CGRect(x: 10, y: 60, width: 100, height: 50))
     }
 
+    func testRegionLayoutSpansSideBySideDisplays() throws {
+        let screens = [
+            DisplayGeometry.ScreenDescriptor(
+                displayID: 1,
+                frame: CGRect(x: 0, y: 0, width: 1000, height: 800),
+                scale: 1
+            ),
+            DisplayGeometry.ScreenDescriptor(
+                displayID: 2,
+                frame: CGRect(x: 1000, y: 0, width: 1200, height: 900),
+                scale: 1
+            )
+        ]
+
+        let layout = try XCTUnwrap(DisplayGeometry.regionLayout(
+            for: CGRect(x: 900, y: 200, width: 300, height: 200),
+            screens: screens
+        ))
+
+        XCTAssertEqual(layout.pixelSize, CGSize(width: 300, height: 200))
+        XCTAssertEqual(layout.slices.map(\.displayID), [1, 2])
+        XCTAssertEqual(layout.slices[0].sourcePixelRect, CGRect(x: 900, y: 400, width: 100, height: 200))
+        XCTAssertEqual(layout.slices[0].destinationPixelRect, CGRect(x: 0, y: 0, width: 100, height: 200))
+        XCTAssertEqual(layout.slices[1].sourcePixelRect, CGRect(x: 0, y: 500, width: 200, height: 200))
+        XCTAssertEqual(layout.slices[1].destinationPixelRect, CGRect(x: 100, y: 0, width: 200, height: 200))
+    }
+
+    func testRegionLayoutUsesHighestScaleAcrossDisplays() throws {
+        let screens = [
+            DisplayGeometry.ScreenDescriptor(
+                displayID: 1,
+                frame: CGRect(x: 0, y: 0, width: 1000, height: 800),
+                scale: 2
+            ),
+            DisplayGeometry.ScreenDescriptor(
+                displayID: 2,
+                frame: CGRect(x: 1000, y: 200, width: 1200, height: 900),
+                scale: 1
+            )
+        ]
+
+        let layout = try XCTUnwrap(DisplayGeometry.regionLayout(
+            for: CGRect(x: 900, y: 600, width: 300, height: 100),
+            screens: screens
+        ))
+
+        XCTAssertEqual(layout.scale, 2)
+        XCTAssertEqual(layout.pixelSize, CGSize(width: 600, height: 200))
+        XCTAssertEqual(layout.slices[0].sourcePixelRect, CGRect(x: 1800, y: 200, width: 200, height: 200))
+        XCTAssertEqual(layout.slices[0].destinationPixelRect, CGRect(x: 0, y: 0, width: 200, height: 200))
+        XCTAssertEqual(layout.slices[1].sourcePixelRect, CGRect(x: 0, y: 400, width: 200, height: 100))
+        XCTAssertEqual(layout.slices[1].destinationPixelRect, CGRect(x: 200, y: 0, width: 400, height: 200))
+    }
+
+    func testOverlayHintGeometryRejectsSelectionOutsideCurrentDisplay() {
+        let visibleSelection = CaptureOverlayGeometry.visibleSelection(
+            CGRect(x: 1200, y: 100, width: 200, height: 100),
+            within: CGRect(x: 0, y: 0, width: 1000, height: 800)
+        )
+
+        XCTAssertNil(visibleSelection)
+        XCTAssertFalse(CaptureOverlayGeometry.isValidHintPoint(
+            CGPoint(x: CGFloat.nan, y: 100)
+        ))
+    }
+
+    func testOverlayHintGeometryAcceptsFiniteDisplayIntersection() throws {
+        let visibleSelection = try XCTUnwrap(CaptureOverlayGeometry.visibleSelection(
+            CGRect(x: 900, y: 100, width: 200, height: 100),
+            within: CGRect(x: 0, y: 0, width: 1000, height: 800)
+        ))
+
+        XCTAssertEqual(visibleSelection, CGRect(x: 900, y: 100, width: 100, height: 100))
+        XCTAssertTrue(CaptureOverlayGeometry.isValidHintPoint(
+            CGPoint(x: visibleSelection.midX, y: visibleSelection.midY)
+        ))
+    }
+
+    func testOverlayPanelUsesScreenLocalContentRectForOffsetDisplay() {
+        let screenFrame = CGRect(x: -470, y: 982, width: 2560, height: 1440)
+
+        XCTAssertEqual(
+            CaptureOverlayGeometry.panelContentRect(for: screenFrame),
+            CGRect(x: 0, y: 0, width: 2560, height: 1440)
+        )
+    }
+
+    func testQuartzWindowFrameUsesPrimaryDisplayTopForVerticalLayouts() {
+        let quartzFrame = CGRect(x: 100, y: -700, width: 800, height: 600)
+        let appKitFrame = DisplayGeometry.appKitRect(
+            fromQuartzRect: quartzFrame,
+            primaryDisplayTop: 1080
+        )
+        XCTAssertEqual(appKitFrame, CGRect(x: 100, y: 1180, width: 800, height: 600))
+    }
+
+    func testWindowSelectionUsesFrontToBackWindowOrder() {
+        let back = windowCandidate(id: 10, frame: CGRect(x: 0, y: 0, width: 500, height: 500))
+        let front = windowCandidate(id: 20, frame: CGRect(x: 100, y: 100, width: 200, height: 200))
+        let ordered = WindowSelectionEngine.orderedFrontToBack([back, front], windowIDs: [20, 10])
+
+        XCTAssertEqual(
+            WindowSelectionEngine.frontmostCandidate(at: CGPoint(x: 150, y: 150), in: ordered)?.id,
+            front.id
+        )
+        XCTAssertEqual(
+            WindowSelectionEngine.frontmostCandidate(at: CGPoint(x: 50, y: 50), in: ordered)?.id,
+            back.id
+        )
+    }
+
+    func testWindowSelectionIgnoresDockSizedSystemWindow() {
+        let dock = windowCandidate(
+            id: 30,
+            frame: CGRect(x: 0, y: 0, width: 1512, height: 982),
+            bundleIdentifier: "com.apple.dock",
+            windowLayer: 20
+        )
+        let appWindow = windowCandidate(
+            id: 40,
+            frame: CGRect(x: 100, y: 100, width: 800, height: 600)
+        )
+
+        XCTAssertEqual(
+            WindowSelectionEngine.frontmostCandidate(
+                at: CGPoint(x: 300, y: 300),
+                in: [dock, appWindow]
+            )?.id,
+            appWindow.id
+        )
+        XCTAssertNil(WindowSelectionEngine.frontmostCandidate(
+            at: CGPoint(x: 10, y: 10),
+            in: [dock]
+        ))
+    }
+
+    func testWindowSelectionAllowsFloatingApplicationWindow() {
+        let floatingPanel = windowCandidate(
+            id: 50,
+            frame: CGRect(x: 100, y: 100, width: 400, height: 300),
+            windowLayer: 3
+        )
+        let appWindow = windowCandidate(
+            id: 60,
+            frame: CGRect(x: 0, y: 0, width: 800, height: 600)
+        )
+
+        XCTAssertEqual(
+            WindowSelectionEngine.frontmostCandidate(
+                at: CGPoint(x: 200, y: 200),
+                in: [floatingPanel, appWindow]
+            )?.id,
+            floatingPanel.id
+        )
+    }
+
     func testMovingAnnotationPointsMovesRenderedLineWithItsFrame() {
         let points = [CanvasPoint(CGPoint(x: 10, y: 20)), CanvasPoint(CGPoint(x: 90, y: 60))]
         let moved = AnnotationCanvasGeometry.movedPoints(points, by: CGPoint(x: 15, y: -5))
@@ -271,6 +427,24 @@ final class ModelAndGeometryTests: XCTestCase {
         XCTAssertEqual(decoded.manifest.schemaVersion, 1)
         XCTAssertEqual(decoded.manifest.outputPixelSize, CGSize(width: 400, height: 300))
         XCTAssertEqual(decoded.annotations, [annotation])
+    }
+
+    private func windowCandidate(
+        id: UInt32,
+        frame: CGRect,
+        bundleIdentifier: String = "example.test",
+        windowLayer: Int = 0
+    ) -> WindowCandidate {
+        WindowCandidate(
+            id: id,
+            title: "Window \(id)",
+            applicationName: "Test App",
+            bundleIdentifier: bundleIdentifier,
+            processID: 1,
+            frame: frame,
+            isOnScreen: true,
+            windowLayer: windowLayer
+        )
     }
 
     func testManifestWithoutResizeConfigurationRemainsDecodable() throws {

@@ -407,7 +407,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, Editor
         alert.alertStyle = .warning
         alert.messageText = "Discard Capture?"
         alert.informativeText = "This permanently removes the capture from history."
-        alert.addButton(withTitle: "Discard")
+        alert.addButton(withTitle: "Discard").hasDestructiveAction = true
         alert.addButton(withTitle: "Cancel")
         alert.beginSheetModal(for: window) { [weak self] response in
             guard response == .alertFirstButtonReturn else { return }
