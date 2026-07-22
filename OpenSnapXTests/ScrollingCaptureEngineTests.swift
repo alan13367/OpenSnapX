@@ -12,7 +12,8 @@ final class ScrollingCaptureEngineTests: XCTestCase {
         XCTAssertLessThanOrEqual(abs(match.overlapRows - 80), 2)
         let stitched = try engine.stitch([ImagePayload(image: first), ImagePayload(image: second)])
         XCTAssertEqual(stitched.image.width, 96)
-        XCTAssertLessThanOrEqual(abs(stitched.image.height - 400), 2)
+        XCTAssertEqual(stitched.image.height, 400)
+        XCTAssertEqual(try rgbaBytes(stitched.image), try rgbaBytes(long))
     }
 
     func testRejectsFramesWithoutReliableOverlap() throws {
@@ -20,6 +21,15 @@ final class ScrollingCaptureEngineTests: XCTestCase {
         let black = try solidImage(width: 80, height: 160, color: CGColor(gray: 0, alpha: 1))
         let engine = AccelerateScrollingCaptureEngine(maximumMeanSquaredError: 1)
         XCTAssertThrowsError(try engine.match(previous: ImagePayload(image: white), next: ImagePayload(image: black)))
+    }
+
+    func testCaptureBudgetRejectsFrameBeforeCombinedWorkingSetExceedsLimit() {
+        var budget = ScrollingCaptureBudget(maximumWorkingBytes: 200)
+
+        XCTAssertTrue(budget.reserveFrame(width: 4, height: 4, bytesPerRow: 16, overlapRows: 0))
+        XCTAssertFalse(budget.reserveFrame(width: 4, height: 4, bytesPerRow: 16, overlapRows: 2))
+        XCTAssertEqual(budget.retainedImageBytes, 64)
+        XCTAssertEqual(budget.outputHeight, 4)
     }
 
     private func stripedImage(width: Int, height: Int) throws -> CGImage {
@@ -32,4 +42,23 @@ final class ScrollingCaptureEngineTests: XCTestCase {
         }
         return context.makeImage()!
     }
+}
+
+private func rgbaBytes(_ image: CGImage) throws -> [UInt8] {
+    let bytesPerRow = image.width * 4
+    var bytes = [UInt8](repeating: 0, count: bytesPerRow * image.height)
+    let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
+    guard let context = CGContext(
+        data: &bytes,
+        width: image.width,
+        height: image.height,
+        bitsPerComponent: 8,
+        bytesPerRow: bytesPerRow,
+        space: colorSpace,
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    ) else {
+        throw OpenSnapXError.captureFailed("Could not inspect scrolling test pixels.")
+    }
+    context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+    return bytes
 }

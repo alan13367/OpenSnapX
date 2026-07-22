@@ -7,6 +7,53 @@ struct ScrollStitchMatch: Sendable {
     let score: Float
 }
 
+struct ScrollingCaptureBudget: Sendable {
+    static let defaultMaximumWorkingBytes = 384 * 1_024 * 1_024
+
+    let maximumWorkingBytes: Int
+    private(set) var retainedImageBytes = 0
+    private(set) var outputWidth = 0
+    private(set) var outputHeight = 0
+
+    init(maximumWorkingBytes: Int = Self.defaultMaximumWorkingBytes) {
+        self.maximumWorkingBytes = max(1, maximumWorkingBytes)
+    }
+
+    mutating func reserveFrame(
+        width: Int,
+        height: Int,
+        bytesPerRow: Int,
+        overlapRows: Int
+    ) -> Bool {
+        guard width > 0,
+              height > 0,
+              bytesPerRow > 0,
+              overlapRows >= 0,
+              overlapRows < height else { return false }
+
+        let (frameBytes, frameOverflow) = bytesPerRow.multipliedReportingOverflow(by: height)
+        let (projectedRetainedBytes, retainedOverflow) = retainedImageBytes.addingReportingOverflow(frameBytes)
+        guard !frameOverflow, !retainedOverflow else { return false }
+
+        let projectedWidth = outputWidth == 0 ? width : min(outputWidth, width)
+        let additionalRows = outputHeight == 0 ? height : height - overlapRows
+        let (projectedHeight, heightOverflow) = outputHeight.addingReportingOverflow(additionalRows)
+        let (projectedPixels, pixelOverflow) = projectedWidth.multipliedReportingOverflow(by: projectedHeight)
+        let (projectedOutputBytes, outputOverflow) = projectedPixels.multipliedReportingOverflow(by: 4)
+        let (projectedWorkingBytes, workingOverflow) = projectedRetainedBytes.addingReportingOverflow(projectedOutputBytes)
+        guard !heightOverflow,
+              !pixelOverflow,
+              !outputOverflow,
+              !workingOverflow,
+              projectedWorkingBytes <= maximumWorkingBytes else { return false }
+
+        retainedImageBytes = projectedRetainedBytes
+        outputWidth = projectedWidth
+        outputHeight = projectedHeight
+        return true
+    }
+}
+
 protocol ScrollingCaptureEngine: Sendable {
     func stitch(_ frames: [ImagePayload]) throws -> ImagePayload
     func match(previous: ImagePayload, next: ImagePayload) throws -> ScrollStitchMatch
@@ -44,7 +91,12 @@ struct AccelerateScrollingCaptureEngine: ScrollingCaptureEngine {
             let overlap = index == 0 ? 0 : matches[index - 1].overlapRows
             let sourceHeight = frame.image.height - overlap
             guard sourceHeight > 0,
-                  let slice = frame.image.cropping(to: CGRect(x: 0, y: 0, width: width, height: sourceHeight)) else { continue }
+                  let slice = frame.image.cropping(to: CGRect(
+                    x: 0,
+                    y: overlap,
+                    width: width,
+                    height: sourceHeight
+                  )) else { continue }
             top -= sourceHeight
             context.draw(slice, in: CGRect(x: 0, y: top, width: width, height: sourceHeight))
         }

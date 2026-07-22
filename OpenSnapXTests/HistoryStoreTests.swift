@@ -82,6 +82,16 @@ final class HistoryStoreTests: XCTestCase {
         let remaining = await store.list()
         XCTAssertTrue(remaining.isEmpty)
     }
+
+    func testForeverRetentionStillRemovesAbandonedTemporaryPackages() async throws {
+        let store = LocalHistoryStore(rootURL: root)
+        let partial = root.appendingPathComponent(".abandoned.tmp", isDirectory: true)
+        try FileManager.default.createDirectory(at: partial, withIntermediateDirectories: true)
+
+        await store.cleanup(retentionDays: 0)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: partial.path))
+    }
 }
 
 private func darkPixelCount(in image: CGImage) -> Int {

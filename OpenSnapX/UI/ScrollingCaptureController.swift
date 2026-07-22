@@ -9,13 +9,19 @@ final class ScrollingCaptureController {
     private var captureTask: Task<Void, Never>?
     private var frames: [ImagePayload] = []
     private var fingerprints: [UInt64] = []
+    private var captureBudget: ScrollingCaptureBudget
     private var continuation: CheckedContinuation<ImagePayload, Error>?
     private var request: CaptureRequest?
     private var finished = false
 
-    init(captureService: any CaptureService, engine: any ScrollingCaptureEngine) {
+    init(
+        captureService: any CaptureService,
+        engine: any ScrollingCaptureEngine,
+        maximumWorkingBytes: Int = ScrollingCaptureBudget.defaultMaximumWorkingBytes
+    ) {
         self.captureService = captureService
         self.engine = engine
+        captureBudget = ScrollingCaptureBudget(maximumWorkingBytes: maximumWorkingBytes)
     }
 
     func start(request: CaptureRequest) async throws -> ImagePayload {
@@ -23,6 +29,7 @@ final class ScrollingCaptureController {
         self.request = request
         frames = []
         fingerprints = []
+        captureBudget = ScrollingCaptureBudget(maximumWorkingBytes: captureBudget.maximumWorkingBytes)
         finished = false
         showHUD()
         return try await withCheckedThrowingContinuation { continuation in
@@ -49,6 +56,7 @@ final class ScrollingCaptureController {
         let capturedFrames = frames
         frames.removeAll()
         fingerprints.removeAll()
+        captureBudget = ScrollingCaptureBudget(maximumWorkingBytes: captureBudget.maximumWorkingBytes)
         let engine = self.engine
         Task {
             do {
@@ -73,6 +81,7 @@ final class ScrollingCaptureController {
         statusLabel = nil
         frames.removeAll()
         fingerprints.removeAll()
+        captureBudget = ScrollingCaptureBudget(maximumWorkingBytes: captureBudget.maximumWorkingBytes)
         continuation?.resume(throwing: OpenSnapXError.selectionCancelled)
         continuation = nil
     }
@@ -90,10 +99,22 @@ final class ScrollingCaptureController {
                     if let previous = frames.last {
                         do {
                             let engine = self.engine
-                            _ = try await Task.detached(priority: .userInitiated) {
+                            let match = try await Task.detached(priority: .userInitiated) {
                                 try engine.match(previous: previous, next: payload)
                             }.value
                             guard !Task.isCancelled else { return }
+                            guard captureBudget.reserveFrame(
+                                width: result.image.width,
+                                height: result.image.height,
+                                bytesPerRow: result.image.bytesPerRow,
+                                overlapRows: match.overlapRows
+                            ) else {
+                                statusLabel?.stringValue = "Maximum safe length reached — finishing capture"
+                                try? await Task.sleep(for: .milliseconds(650))
+                                guard !Task.isCancelled else { return }
+                                finish()
+                                return
+                            }
                             failedMatches = 0
                             frames.append(payload)
                             fingerprints.append(fingerprint)
@@ -102,6 +123,19 @@ final class ScrollingCaptureController {
                             statusLabel?.stringValue = "Overlap not found — scroll more slowly (\(frames.count) frames kept)"
                         }
                     } else {
+                        guard captureBudget.reserveFrame(
+                            width: result.image.width,
+                            height: result.image.height,
+                            bytesPerRow: result.image.bytesPerRow,
+                            overlapRows: 0
+                        ) else {
+                            continuation?.resume(throwing: OpenSnapXError.captureFailed(
+                                "The selected scrolling area is too large to process safely."
+                            ))
+                            continuation = nil
+                            cancel()
+                            return
+                        }
                         frames.append(payload)
                         fingerprints.append(fingerprint)
                     }
@@ -170,4 +204,3 @@ final class ScrollingCaptureController {
         return bytes.reduce(UInt64(1469598103934665603)) { ($0 ^ UInt64($1)) &* 1099511628211 }
     }
 }
-

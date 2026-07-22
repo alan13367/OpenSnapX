@@ -114,10 +114,11 @@ actor LocalHistoryStore: HistoryStore {
     }
 
     func cleanup(retentionDays: Int) async {
-        guard retentionDays > 0 else { return }
-        let cutoff = Calendar.current.date(byAdding: .day, value: -retentionDays, to: Date()) ?? .distantPast
-        for session in await list() where session.manifest.createdAt < cutoff {
-            try? fileManager.removeItem(at: packageURL(for: session.id))
+        if retentionDays > 0 {
+            let cutoff = Calendar.current.date(byAdding: .day, value: -retentionDays, to: Date()) ?? .distantPast
+            for session in await list() where session.manifest.createdAt < cutoff {
+                try? fileManager.removeItem(at: packageURL(for: session.id))
+            }
         }
         guard let partials = try? fileManager.contentsOfDirectory(at: rootURL, includingPropertiesForKeys: nil) else { return }
         for url in partials where url.lastPathComponent.hasPrefix(".") && url.pathExtension == "tmp" {

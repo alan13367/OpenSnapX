@@ -136,6 +136,37 @@ final class ShortcutSettingsTests: XCTestCase {
         XCTAssertEqual(toolbar.selectedItemIdentifier?.rawValue, "GeneralSettings")
     }
 
+    func testChangingHistoryRetentionRequestsImmediateCleanup() throws {
+        let suiteName = "OpenSnapXTests.historyRetention.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            return XCTFail("Could not create isolated defaults suite")
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let settings = SettingsStore(defaults: defaults)
+        var requestedRetentionDays: [Int] = []
+        let controller = SettingsWindowController(
+            settings: settings,
+            registerShortcuts: { [] },
+            showOnboarding: {},
+            historyRetentionChanged: { requestedRetentionDays.append($0) },
+            setMCPEnabled: { _ in },
+            installAgentSkill: {},
+            copyMCPConfiguration: {}
+        )
+        let contentView = try XCTUnwrap(controller.window?.contentView)
+        let retention = try XCTUnwrap(findView(in: contentView) { view in
+            guard let popUp = view as? NSPopUpButton else { return false }
+            return popUp.itemTitles == ["1 day", "7 days", "30 days", "Forever"]
+        } as? NSPopUpButton)
+
+        retention.selectItem(withTitle: "1 day")
+        XCTAssertTrue(retention.sendAction(retention.action, to: retention.target))
+
+        XCTAssertEqual(settings.historyRetentionDays, 1)
+        XCTAssertEqual(requestedRetentionDays, [1])
+    }
+
     func testMCPDefaultsToDisabledAndPersistsExplicitOptIn() {
         let suiteName = "OpenSnapXTests.mcp.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
@@ -223,4 +254,12 @@ final class ShortcutSettingsTests: XCTestCase {
             OptionBits(kEventHotKeyExclusive)
         )
     }
+}
+
+private func findView(in root: NSView, matching predicate: (NSView) -> Bool) -> NSView? {
+    if predicate(root) { return root }
+    for subview in root.subviews {
+        if let match = findView(in: subview, matching: predicate) { return match }
+    }
+    return nil
 }

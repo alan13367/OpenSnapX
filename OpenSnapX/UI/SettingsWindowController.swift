@@ -6,6 +6,7 @@ final class SettingsWindowController: NSWindowController {
     private let settings: SettingsStore
     private let registerShortcuts: () -> [ShortcutRegistrationResult]
     private let showOnboarding: () -> Void
+    private let historyRetentionChanged: (Int) -> Void
     private let setMCPEnabled: (Bool) -> Void
     private let installAgentSkill: () -> Void
     private let copyMCPConfiguration: () -> Void
@@ -26,6 +27,7 @@ final class SettingsWindowController: NSWindowController {
         settings: SettingsStore,
         registerShortcuts: @escaping () -> [ShortcutRegistrationResult],
         showOnboarding: @escaping () -> Void,
+        historyRetentionChanged: @escaping (Int) -> Void = { _ in },
         setMCPEnabled: @escaping (Bool) -> Void,
         installAgentSkill: @escaping () -> Void,
         copyMCPConfiguration: @escaping () -> Void
@@ -33,6 +35,7 @@ final class SettingsWindowController: NSWindowController {
         self.settings = settings
         self.registerShortcuts = registerShortcuts
         self.showOnboarding = showOnboarding
+        self.historyRetentionChanged = historyRetentionChanged
         self.setMCPEnabled = setMCPEnabled
         self.installAgentSkill = installAgentSkill
         self.copyMCPConfiguration = copyMCPConfiguration
@@ -488,7 +491,11 @@ final class SettingsWindowController: NSWindowController {
     }
 
     @objc private func preferencesChanged() {
-        settings.historyRetentionDays = [1, 7, 30, 0][retention.indexOfSelectedItem]
+        let retentionDays = [1, 7, 30, 0][retention.indexOfSelectedItem]
+        if settings.historyRetentionDays != retentionDays {
+            settings.historyRetentionDays = retentionDays
+            historyRetentionChanged(retentionDays)
+        }
         settings.includeCursor = cursor.state == .on
         settings.captureSoundEnabled = captureSound.state == .on
     }

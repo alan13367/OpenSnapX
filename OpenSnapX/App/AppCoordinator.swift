@@ -34,6 +34,9 @@ final class AppCoordinator: NSObject {
     private var shortcutConflicts: [ShortcutAction] = []
     private var colorNoticePanel: NSPanel?
     private var colorNoticeTask: Task<Void, Never>?
+    private var historyCleanupTask: Task<Void, Never>?
+
+    private static let historyCleanupInterval: Duration = .seconds(15 * 60)
 
     func start() {
         NSApp.setActivationPolicy(.accessory)
@@ -45,14 +48,13 @@ final class AppCoordinator: NSObject {
         shortcutManager.onAction = { [weak self] action in self?.handleShortcut(action) }
         _ = registerConfiguredShortcuts()
         NotificationCenter.default.addObserver(self, selector: #selector(windowClosed), name: NSWindow.willCloseNotification, object: nil)
-        Task {
-            await historyStore.cleanup(retentionDays: settings.historyRetentionDays)
-            await rebuildMenu()
-        }
+        startHistoryCleanupSchedule()
         if !settings.completedOnboarding { showOnboarding() }
     }
 
     func stop() {
+        historyCleanupTask?.cancel()
+        historyCleanupTask = nil
         mcpServer.stop()
         shortcutManager.unregisterAll()
     }
@@ -456,6 +458,7 @@ final class AppCoordinator: NSObject {
             settings: settings,
             registerShortcuts: { [weak self] in self?.registerConfiguredShortcuts() ?? [] },
             showOnboarding: { [weak self] in self?.showOnboarding() },
+            historyRetentionChanged: { [weak self] _ in self?.startHistoryCleanupSchedule() },
             setMCPEnabled: { [weak self] enabled in self?.setMCPEnabled(enabled) },
             installAgentSkill: { [weak self] in self?.installAgentSkill() },
             copyMCPConfiguration: { [weak self] in self?.copyMCPConfiguration() }
@@ -463,6 +466,30 @@ final class AppCoordinator: NSObject {
         settingsController = controller
         controller.updateMCPStatus(mcpPresentationStatus)
         controller.show()
+    }
+
+    private func startHistoryCleanupSchedule() {
+        historyCleanupTask?.cancel()
+        historyCleanupTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                await self.performHistoryCleanup()
+                do {
+                    try await Task.sleep(for: Self.historyCleanupInterval)
+                } catch {
+                    return
+                }
+            }
+        }
+    }
+
+    private func performHistoryCleanup() async {
+        await historyStore.cleanup(retentionDays: settings.historyRetentionDays)
+        guard !Task.isCancelled else { return }
+        if let historyController, historyController.window?.isVisible == true {
+            await refreshHistoryWindow(historyController)
+        }
+        await rebuildMenu()
     }
 
     @objc private func showOnboarding() {
